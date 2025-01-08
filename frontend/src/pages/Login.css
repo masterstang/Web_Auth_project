@@ -1,0 +1,116 @@
+/* General Styles */
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #f4f7fa;
+}
+
+.split-container {
+  display: flex;
+  width: 100vw; /* เต็มความกว้างของหน้าจอ */
+  height: 100vh; /* เต็มความสูงของหน้าจอ */
+  background-color: #ffffff;
+}
+
+/* Left Section */
+.left-section {
+  flex: 1; /* ใช้พื้นที่ครึ่งหนึ่งของหน้าจอ */
+  background-color: #007bff;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.left-section h1 {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+
+.left-section p {
+  font-size: 18px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Right Section */
+.right-section {
+  flex: 1; /* ใช้พื้นที่ครึ่งหนึ่งของหน้าจอ */
+  background-color: #f9f9f9;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+/* Login Container */
+.login-container {
+  width: 100%;
+  max-width: 400px;
+  padding: 40px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background-color: #ffffff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 24px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+input {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+.login-button {
+  padding: 10px;
+  background-color: #2B3E8A;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.register-button {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #6c757d;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.login-button:hover {
+  background-color: #0056b3;
+}
+
+.register-button:hover {
+  background-color: #5a6268;
+}
