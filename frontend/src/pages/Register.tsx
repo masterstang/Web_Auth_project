@@ -88,16 +88,15 @@ const Register: React.FC = () => {
               </div>
 
               <div className="column">
-                <label htmlFor="email">Email</label>
+                <label htmlFor="password">Password</label>
                 <input
-                  type="email"
-                  name="email"
-                  placeholder="Email"
-                  value={formData.email}
+                  type="password"
+                  name="password"
+                  placeholder="Password"
+                  value={formData.password}
                   onChange={handleChange}
                   required
                 />
-
                 <label htmlFor="lastName">Last Name</label>
                 <input
                   type="text"
@@ -108,12 +107,12 @@ const Register: React.FC = () => {
                   required
                 />
 
-                <label htmlFor="password">Password</label>
+                <label htmlFor="email">Email</label>
                 <input
-                  type="password"
-                  name="password"
-                  placeholder="Password"
-                  value={formData.password}
+                  type="email"
+                  name="email"
+                  placeholder="Email"
+                  value={formData.email}
                   onChange={handleChange}
                   required
                 />

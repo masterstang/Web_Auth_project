@@ -222,7 +222,7 @@ app.post("/api/register", async (req, res) => {
 
       console.log("User credentials added successfully.");
 
-      // เพิ่ม idpassport ลงในตาราง userinfo
+
       const userInfoQuery = `
         INSERT INTO userinfo (username, firstname, lastname, email, mobilephone, idpassport)
         VALUES (?, ?, ?, ?, ?, ?)
