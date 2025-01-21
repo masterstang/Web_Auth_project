@@ -1,28 +1,71 @@
-.status-container {
-  max-width: 600px;
-  margin: 50px auto;
-  padding: 20px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background-color: #f9f9f9;
+body {
   font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #c4c8cb;
+}
+
+.main-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background-color: #c6c8ca;
+
+}
+
+.status-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-grow: 1;
+  padding: 50px;
+}
+
+.status-card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  max-width: 400px;
+  padding: 30px;
+  width: 100%;
+  text-align: center;
 }
 
 .status-header {
-  text-align: center;
-  color: #333;
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 20px;
+  color: #333333;
 }
 
 .status-info {
   margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.status-info p {
-  margin: 10px 0;
-  color: #555;
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  background: #f9f9f9;
+  padding: 10px;
+  border-radius: 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.status-item strong {
+  color: #555555;
+  font-weight: bold;
+}
+
+.status-item span {
+  color: #333333;
 }
 
 .status-error {
   color: red;
   text-align: center;
+  margin-top: 20px;
 }

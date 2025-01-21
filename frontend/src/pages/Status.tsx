@@ -43,34 +43,36 @@ const StatusPage: React.FC = () => {
     fetchStatus();
   }, []);
 
-  if (error) {
-    return <p className="status-error">{error}</p>;
-  }
-
   return (
-    <div className="status-container">
-      <h1 className="status-header">User Status</h1>
-      {userStatus ? (
-        <div className="status-info">
-          <p>
-            <strong>First Name:</strong> {userStatus.firstname}
-          </p>
-          <p>
-            <strong>Last Name:</strong> {userStatus.lastname}
-          </p>
-          <p>
-            <strong>Email:</strong> {userStatus.email}
-          </p>
-          <p>
-            <strong>Mobile Phone:</strong> {userStatus.mobilephone}
-          </p>
-          <p>
-            <strong>Group Name:</strong> {userStatus.groupname}
-          </p>
+    <div className="main-container">
+      <div className="status-container">
+        <div className="status-card">
+          <h1 className="status-header">User Status</h1>
+          {error ? (
+            <p className="status-error">{error}</p>
+          ) : userStatus ? (
+            <div className="status-info">
+              <div className="status-item">
+                <strong>First Name:</strong> <span>{userStatus.firstname}</span>
+              </div>
+              <div className="status-item">
+                <strong>Last Name:</strong> <span>{userStatus.lastname}</span>
+              </div>
+              <div className="status-item">
+                <strong>Email:</strong> <span>{userStatus.email}</span>
+              </div>
+              <div className="status-item">
+                <strong>Mobile Phone:</strong> <span>{userStatus.mobilephone}</span>
+              </div>
+              <div className="status-item">
+                <strong>Group Name:</strong> <span>{userStatus.groupname}</span>
+              </div>
+            </div>
+          ) : (
+            <p>Loading...</p>
+          )}
         </div>
-      ) : (
-        <p>Loading...</p>
-      )}
+      </div>
     </div>
   );
 };

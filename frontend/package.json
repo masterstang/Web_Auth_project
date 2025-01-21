@@ -16,6 +16,7 @@
     "@mui/lab": "^6.0.0-beta.22",
     "@mui/material": "^6.3.1",
     "axios": "^1.7.9",
+    "helmet": "^8.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.1.1"

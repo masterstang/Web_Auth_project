@@ -22,11 +22,11 @@ const LoginPage: React.FC = () => {
         password,
       });
 
-      // Access Token ถูกเก็บใน localStorage โดยใช้ชื่อคีย์ token
+      // บันทึก Access Token และชื่อผู้ใช้ลงใน localStorage
       localStorage.setItem("token", response.data.accessToken);
       localStorage.setItem("username", username);
 
-      // Navigate to the status page
+      // นำทางไปยังหน้าสถานะ
       navigate("/status");
     } catch (err: any) {
       setError(err.response?.data || "Login failed. Please try again.");
@@ -36,18 +36,18 @@ const LoginPage: React.FC = () => {
   };
 
   const handleRegisterRedirect = () => {
-    navigate("/register"); // Navigate to the Register page
+    navigate("/register"); // นำทางไปยังหน้า Register
   };
 
   return (
     <div className="split-container">
-      {/* Left Section */}
+      {/* ส่วนด้านซ้าย */}
       <div className="left-section">
         <h1>Welcome</h1>
         <p>This is the left section with content or branding.</p>
       </div>
 
-      {/* Right Section */}
+      {/* ส่วนด้านขวา */}
       <div className="right-section">
         <div className="login-container">
           <h1 className="login-header">Login</h1>
@@ -57,6 +57,7 @@ const LoginPage: React.FC = () => {
               <input
                 type="text"
                 id="username"
+                placeholder="Enter your username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
@@ -67,23 +68,27 @@ const LoginPage: React.FC = () => {
               <input
                 type="password"
                 id="password"
+                placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
             </div>
+
             <LoadingButton
-              type="submit" // Ensure it's a submit button
+              type="submit"
               loading={loading}
-              loadingPosition="end"
               variant="contained"
               className="login-button"
             >
               Login
             </LoadingButton>
+
             {error && <p className="login-error">{error}</p>}
+
             <p>Don't have an account?</p>
             <button
+              type="button"
               className="register-button"
               onClick={handleRegisterRedirect}
             >

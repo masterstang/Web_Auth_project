@@ -1,22 +1,26 @@
-require("dotenv").config(); // โหลดค่าจาก .env
+import dotenv from "dotenv";
+dotenv.config();
 
-const express = require("express");
-const bodyParser = require("body-parser");
-const cors = require("cors");
-const axios = require("axios");
-const mysql = require("mysql");
+import express from "express";
+import bodyParser from "body-parser";
+import cors from "cors";
+import axios from "axios";
+import mysql from "mysql";
+import bcrypt from "bcrypt";
+import helmet from "helmet";
+
 const app = express();
-const port = process.env.PORT || 5000; // อ่าน PORT จาก .env หรือใช้ค่า 5000 เป็นค่าเริ่มต้น
+const port = process.env.PORT || 5000;
 
-// อ่านค่าการตั้งค่าจากไฟล์ .env
+// Keycloak settings
 const keycloakClientId = process.env.KEYCLOAK_CLIENT_ID;
 const keycloakSecret = process.env.KEYCLOAK_CLIENT_SECRET;
 const keycloakRealm = process.env.KEYCLOAK_REALM;
-const keycloakBaseUrl = process.env.KEYCLOAK_URL; // ใช้ BASE URL
+const keycloakBaseUrl = process.env.KEYCLOAK_URL;
 
 console.log("Keycloak Client ID:", keycloakClientId);
 
-//---------Connet Daloradius-------------------------
+// Connect to Daloradius
 const daloradiusDb = mysql.createConnection({
   host: process.env.DALORADIUS_DB_HOST,
   user: process.env.DALORADIUS_DB_USER,
@@ -32,23 +36,20 @@ daloradiusDb.connect((err) => {
   }
 });
 
-//---------------------------------
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
-// Middleware ตรวจสอบ Token
-function verifyToken(req, res, next) {
+app.use(helmet());
+
+// Verify Token Middleware
+const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) 
-    {
-
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).send({ error: "Unauthorized" });
   }
 
   const token = authHeader.split(" ")[1];
 
-  // ตรวจสอบว่า Token ถูกต้องหรือไม่ (ใช้ Keycloak หรือ JWT Validation)
   axios
     .post(
       `${keycloakBaseUrl}/realms/${keycloakRealm}/protocol/openid-connect/token/introspect`,
@@ -58,14 +59,12 @@ function verifyToken(req, res, next) {
         token: token,
       }).toString(),
       {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
       }
     )
     .then((response) => {
       if (response.data.active) {
-        req.user = response.data; // เก็บข้อมูลใน req.user
+        req.user = response.data;
         next();
       } else {
         res.status(401).send({ error: "Invalid Token" });
@@ -75,7 +74,8 @@ function verifyToken(req, res, next) {
       console.error("Token validation error:", err.message);
       res.status(500).send("Internal Server Error");
     });
-}
+};
+
 // API LOGIN
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
@@ -154,10 +154,10 @@ app.post("/api/login", async (req, res) => {
 app.post("/api/register", async (req, res) => {
   console.log("Request Body:", req.body);
 
-  const { username, email, password, firstName, lastName, mobilePhone } = req.body;
+  const { username, email, password, firstName, lastName, mobilePhone, idpassport } = req.body;
 
-  if (!username || !password || !firstName || !lastName || !mobilePhone) {
-    return res.status(400).send("Username, Password, First Name, Last Name, and Mobile Phone are required.");
+  if (!username || !password || !firstName || !lastName || !mobilePhone || !idpassport) {
+    return res.status(400).send("All fields are required: Username, Password, First Name, Last Name, Mobile Phone, and ID Passport.");
   }
 
   try {
@@ -207,7 +207,7 @@ app.post("/api/register", async (req, res) => {
 
     console.log("User created successfully in Keycloak:", keycloakResponse.data);
 
-    // Step 2: Use Token to Authenticate in Daloradius
+    // Step 2: Register user in Daloradius
     console.log("Registering user in Daloradius...");
     const query = `
       INSERT INTO radcheck (username, attribute, op, value)
@@ -220,20 +220,21 @@ app.post("/api/register", async (req, res) => {
         return res.status(500).send("Error registering user in Daloradius.");
       }
 
-      console.log("User created successfully in radcheck.");
-      //? เป็น Placeholder ป้องกันการทำ SQL Injection
+      console.log("User credentials added successfully.");
+
+      // เพิ่ม idpassport ลงในตาราง userinfo
       const userInfoQuery = `
-        INSERT INTO userinfo (username, firstname, lastname, email, mobilephone)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO userinfo (username, firstname, lastname, email, mobilephone, idpassport)
+        VALUES (?, ?, ?, ?, ?, ?)
       `;
 
-      daloradiusDb.query(userInfoQuery, [username, firstName, lastName, email, mobilePhone], (err, userInfoResults) => {
+      daloradiusDb.query(userInfoQuery, [username, firstName, lastName, email, mobilePhone, idpassport], (err, userInfoResults) => {
         if (err) {
           console.error("Error inserting user into userinfo table:", err);
           return res.status(500).send("Error registering user in Daloradius.");
         }
 
-        console.log("User info added successfully to userinfo table.");
+        console.log("User info and idpassport added successfully to userinfo table.");
 
         // Add to radusergroup
         const groupQuery = `
@@ -257,6 +258,7 @@ app.post("/api/register", async (req, res) => {
     res.status(500).send("Error registering user");
   }
 });
+
 //----------------------Api/status-------------------------------------------------------------
 app.get("/api/status/:username", verifyToken, async (req, res) => {
   const { username } = req.params;

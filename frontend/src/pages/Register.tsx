@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import "./Register.css";
+import "./register.css";
 
 const Register: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -11,6 +11,7 @@ const Register: React.FC = () => {
     firstName: "",
     lastName: "",
     mobilePhone: "",
+    idpassport:"",
   });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -27,7 +28,7 @@ const Register: React.FC = () => {
     setSuccess(null);
 
     try {
-      const response = await axios.post("http://localhost:5000/api/register", formData);
+      await axios.post("http://localhost:5000/api/register", formData);
       setSuccess("Registration successful! Redirecting to login...");
       setTimeout(() => {
         navigate("/");
@@ -41,6 +42,7 @@ const Register: React.FC = () => {
     <div className="split-container">
       {/* Left Section */}
       <div className="left-section">
+        <div className="overlay"></div>
         <h1>Welcome</h1>
         <p>Join us today! Fill out the form to register.</p>
       </div>
@@ -52,59 +54,89 @@ const Register: React.FC = () => {
           {error && <p className="error">{error}</p>}
           {success && <p className="success">{success}</p>}
           <form onSubmit={handleSubmit}>
-          <div className="input-group">
-            <label htmlFor="username">Username</label>
-            <input
-              type="text"
-              name="username"
-              placeholder="Username"
-              value={formData.username}
-              onChange={handleChange}
-              required
-            />
-            <label htmlFor="email">email</label>
+            <div className="row">
+              <div className="column">
+                <label htmlFor="username">Username</label>
+                <input
+                  type="text"
+                  name="username"
+                  placeholder="Username"
+                  value={formData.username}
+                  onChange={handleChange}
+                  required
+                />
 
-            <input
-              type="email"
-              name="email"
-              placeholder="Email"
-              value={formData.email}
-              onChange={handleChange}
-              required
-            />
-            <input
-              type="password"
-              name="password"
-              placeholder="Password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-            />
-            <input
-              type="text"
-              name="firstName"
-              placeholder="First Name"
-              value={formData.firstName}
-              onChange={handleChange}
-              required
-            />
-            <input
-              type="text"
-              name="lastName"
-              placeholder="Last Name"
-              value={formData.lastName}
-              onChange={handleChange}
-              required
-            />
-            <input
-              type="text"
-              name="mobilePhone"
-              placeholder="Mobile Phone"
-              value={formData.mobilePhone}
-              onChange={handleChange}
-              required
-            />
-            <button type="submit">Register</button>
+                <label htmlFor="firstName">First Name</label>
+                <input
+                  type="text"
+                  name="firstName"
+                  placeholder="First Name"
+                  value={formData.firstName}
+                  onChange={handleChange}
+                  required
+                />
+
+                <label htmlFor="mobilePhone">Mobile Phone</label>
+                <input
+                  type="text"
+                  name="mobilePhone"
+                  placeholder="Mobile Phone"
+                  value={formData.mobilePhone}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              <div className="column">
+                <label htmlFor="email">Email</label>
+                <input
+                  type="email"
+                  name="email"
+                  placeholder="Email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  required
+                />
+
+                <label htmlFor="lastName">Last Name</label>
+                <input
+                  type="text"
+                  name="lastName"
+                  placeholder="Last Name"
+                  value={formData.lastName}
+                  onChange={handleChange}
+                  required
+                />
+
+                <label htmlFor="password">Password</label>
+                <input
+                  type="password"
+                  name="password"
+                  placeholder="Password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="center-row">
+              <label htmlFor="idPassport" className="id-passport-label">ID PassPort</label>
+              <input
+                type="text"
+                name="idpassport"
+                placeholder="ID"
+                value={formData.idpassport}
+                onChange={handleChange}
+                className="id-passport-input"
+                required
+              />
+            </div>
+
+            <div className="center-row">
+              <button type="submit" className="register-button">
+                Register
+              </button>
             </div>
           </form>
         </div>

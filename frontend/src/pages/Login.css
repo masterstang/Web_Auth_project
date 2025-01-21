@@ -1,7 +1,8 @@
 /* General Styles */
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  font-family: "Roboto", sans-serif;
+  line-height: 1.6;
   height: 100vh;
   display: flex;
   justify-content: center;
@@ -18,25 +19,51 @@ body {
 
 /* Left Section */
 .left-section {
-  flex: 1; /* ใช้พื้นที่ครึ่งหนึ่งของหน้าจอ */
-  background-color: #007bff;
-  color: #ffffff;
+  flex: 1;
+  background-image: linear-gradient(
+    rgba(0, 0, 0, 0.5),
+    rgba(0, 0, 0, 0.5)
+  ),
+  url("./assets/Login.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  position: relative;
   display: flex;
-  flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: 20px;
+  color: white;
+  text-align: center;
+}
+
+.left-section::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5); /* สีดำโปร่งแสง */
+  z-index: 1;
 }
 
 .left-section h1 {
+  z-index: 2; /* ทำให้ข้อความอยู่เหนือ overlay */
   font-size: 48px;
+  font-weight: bold;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+  animation: fadeIn 2s ease-in-out;
   margin-bottom: 10px;
 }
 
 .left-section p {
+  z-index: 2; /* ทำให้ข้อความอยู่เหนือ overlay */
   font-size: 18px;
   text-align: center;
   line-height: 1.5;
+  animation: fadeIn 2.5s ease-in-out;
+  margin-top: 20px; /* เพิ่มระยะห่างจาก h1 */
+
 }
 
 /* Right Section */
@@ -50,14 +77,14 @@ body {
 }
 
 /* Login Container */
-.login-container {
+.right-section .login-container {
   width: 100%;
   max-width: 400px;
-  padding: 40px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background-color: #ffffff;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  border-radius: 15px;
+  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2); /* เงาสำหรับฟอร์ม */
+  animation: slideIn 1s ease-in-out;
+  padding: 30px;
 }
 
 .login-header {
@@ -65,6 +92,13 @@ body {
   margin-bottom: 20px;
   color: #333;
   font-size: 24px;
+}
+
+.company-logo {
+  display: block;
+  margin: 0 auto 20px auto;
+  max-width: 200px; /* ขนาดความกว้างสูงสุด */
+  height: auto;
 }
 
 .login-form {
@@ -80,37 +114,69 @@ body {
 }
 
 input {
-  padding: 10px;
+  padding: 12px;
   border: 1px solid #ddd;
   border-radius: 5px;
   font-size: 14px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+  outline: none;
 }
 
-.login-button {
-  padding: 10px;
-  background-color: #2B3E8A;
-  color: #fff;
+.right-section .login-button,
+.right-section .register-button {
+  padding: 12px;
+  background: linear-gradient(90deg, #007bff, #0056b3); /* Gradient */
+  width: 100%; /* ยืดปุ่มให้เต็มพื้นที่ */
+  max-width: 500px; /* ตั้งค่าความกว้างสูงสุด */
+  margin: 10px auto; /* จัดให้อยู่ตรงกลางและมีระยะห่างระหว่างปุ่ม */
+  color: #ffffff;
   border: none;
-  border-radius: 5px;
-  cursor: pointer;
+  border-radius: 25px; /* มุมมนแบบ pill */
   font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.register-button {
-  margin-top: 10px;
-  padding: 10px;
-  background-color: #6c757d;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 16px;
+.right-section .login-button:hover,
+.right-section .register-button:hover {
+  transform: translateY(-2px); /* ยกขึ้นเล็กน้อยเมื่อ Hover */
+  box-shadow: 0 8px 15px rgba(0, 123, 255, 0.3);
 }
 
-.login-button:hover {
-  background-color: #0056b3;
+.right-section .register-button {
+  background: linear-gradient(90deg, #6c757d, #495057); /* สีเทา */
 }
 
 .register-button:hover {
-  background-color: #5a6268;
+  box-shadow: 0 8px 15px rgba(108, 117, 125, 0.3);
+}
+.login-error {
+  color: red; /* กำหนดข้อความให้เป็นสีแดง */
+  font-size: 0.9em; /* ขนาดข้อความ */
+  margin-top: 10px; /* ระยะห่างด้านบน */
+  text-align: center; /* จัดข้อความให้อยู่ตรงกลาง */
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes slideIn {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
