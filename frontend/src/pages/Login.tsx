@@ -15,18 +15,17 @@ const LoginPage: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
+  
     try {
-      const response = await axios.post("http://localhost:5000/api/login", {
+      const response = await axios.post("http://192.168.1.67/api/login", {
         username,
         password,
       });
-
-      // บันทึก Access Token และชื่อผู้ใช้ลงใน localStorage
+  
       localStorage.setItem("token", response.data.accessToken);
       localStorage.setItem("username", username);
-
-      // นำทางไปยังหน้าสถานะ
+  
+      // Redirect ไปยังหน้าสถานะหลังจาก login สำเร็จ
       navigate("/status");
     } catch (err: any) {
       setError(err.response?.data || "Login failed. Please try again.");
@@ -34,6 +33,7 @@ const LoginPage: React.FC = () => {
       setLoading(false);
     }
   };
+  
 
   const handleRegisterRedirect = () => {
     navigate("/register"); // นำทางไปยังหน้า Register

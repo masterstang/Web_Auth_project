@@ -5,7 +5,7 @@ import StatusPage from "./pages/Status";
 import Register from "./pages/Register";
 const AppRouter: React.FC = () => {
   return (
-    <Router>
+    <Router basename="/guest/s/default/">
       <Routes>
       <Route path="/" element={<LoginPage />} />
       <Route path="/status" element={<StatusPage />} />

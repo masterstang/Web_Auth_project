@@ -18,30 +18,31 @@ const StatusPage: React.FC = () => {
     const fetchStatus = async () => {
       const token = localStorage.getItem("token");
       const username = localStorage.getItem("username");
-
+  
       if (!token || !username) {
         setError("Unauthorized. Please log in.");
         return;
       }
-
+  
       try {
         const response = await axios.get(
-          `http://localhost:5000/api/status/${username}`,
+          `http://192.168.1.67/api/status/${username}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
             },
           }
         );
-
         setUserStatus(response.data);
       } catch (err: any) {
-        setError(err.response?.data || "Failed to fetch user status.");
+        console.error("Error fetching status:", err.response?.data);
+        setError(err.response?.data?.error || "Failed to fetch user status.");
       }
     };
-
+  
     fetchStatus();
   }, []);
+  
 
   return (
     <div className="main-container">

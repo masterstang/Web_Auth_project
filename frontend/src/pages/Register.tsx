@@ -28,7 +28,7 @@ const Register: React.FC = () => {
     setSuccess(null);
 
     try {
-      await axios.post("http://localhost:5000/api/register", formData);
+      await axios.post("http://192.168.1.67/api/register", formData);
       setSuccess("Registration successful! Redirecting to login...");
       setTimeout(() => {
         navigate("/");

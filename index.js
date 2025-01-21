@@ -222,7 +222,7 @@ app.post("/api/register", async (req, res) => {
 
       console.log("User credentials added successfully.");
 
-
+      // เพิ่ม idpassport ลงในตาราง userinfo
       const userInfoQuery = `
         INSERT INTO userinfo (username, firstname, lastname, email, mobilephone, idpassport)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -297,15 +297,19 @@ app.get("/api/status/:username", verifyToken, async (req, res) => {
     res.status(500).send("Internal Server Error");
   }
 });
-
+//--------------
 
 //--------------------------------------------------------------------------------------
 // Root Endpoint
+app.get('/guest/s/default/', (req, res) => {
+  res.redirect('/');
+});
 app.get("/", (req, res) => {
   res.send("Server is running! Use /api/login for Keycloak authentication.");
 });
 
+
 // เริ่มเซิร์ฟเวอร์
 app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+  console.log(`Server is running on http://192.168.1.67:${port}`);
 });
