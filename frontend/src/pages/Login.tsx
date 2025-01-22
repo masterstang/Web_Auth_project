@@ -1,8 +1,10 @@
+
 import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import "./login.css";
 import LoadingButton from '@mui/lab/LoadingButton';
+
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState("");
@@ -11,13 +13,18 @@ const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://192.168.1.67";
+  console.log("API Base URL:", apiBaseUrl);
+  
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
   
     try {
-      const response = await axios.post("http://192.168.1.67/api/login", {
+      console.log("Logging in user:", username);
+      const response = await axios.post(`${apiBaseUrl}/api/login`, {
         username,
         password,
       });
@@ -25,9 +32,18 @@ const LoginPage: React.FC = () => {
       localStorage.setItem("token", response.data.accessToken);
       localStorage.setItem("username", username);
   
-      // Redirect ไปยังหน้าสถานะหลังจาก login สำเร็จ
-      navigate("/status");
+      // ตรวจสอบค่าที่ส่งไปยัง API UniFi
+      const queryParams = new URLSearchParams(window.location.search);
+      const macAddress = queryParams.get("id");
+      console.log("MAC Address:", macAddress);
+  
+      await axios.post(`${apiBaseUrl}/api/unifi-authorize`, {
+        mac: macAddress,
+      });
+  
+      window.location.href = response.data.redirect;
     } catch (err: any) {
+      console.error("Error during login:", err);
       setError(err.response?.data || "Login failed. Please try again.");
     } finally {
       setLoading(false);
@@ -84,7 +100,7 @@ const LoginPage: React.FC = () => {
               Login
             </LoadingButton>
 
-            {error && <p className="login-error">{error}</p>}
+            {error && <p className="login-error">{typeof error === 'string' ? error : JSON.stringify(error)}</p>}
 
             <p>Don't have an account?</p>
             <button

@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 dotenv.config();
-
+import https from 'https';
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
@@ -37,7 +37,9 @@ daloradiusDb.connect((err) => {
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',  // หรือกำหนดเป็นเฉพาะโดเมน
+  methods: ['GET', 'POST'],}));
 app.use(bodyParser.json());
 app.use(helmet());
 
@@ -85,7 +87,6 @@ app.post("/api/login", async (req, res) => {
   }
 
   try {
-    // Step 1: Authenticate with Keycloak
     console.log("Authenticating user in Keycloak...");
 
     const params = new URLSearchParams();
@@ -104,51 +105,59 @@ app.post("/api/login", async (req, res) => {
         },
       }
     );
-    //--เก็บ Token --------
+
     const accessToken = keycloakResponse.data.access_token;
     console.log("Access Token received from Keycloak:", accessToken);
 
-    // Step 2: Fetch user status from daloRADIUS
-    console.log("Fetching user status from daloRADIUS...");
-    const query = `
-      SELECT 
-        radacct.username,
-        radacct.AcctSessionTime AS session_time,
-        radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
-        radacct.AcctStartTime AS last_login
-      FROM radacct
-      WHERE radacct.username = ?
-      ORDER BY radacct.AcctStartTime DESC
-      LIMIT 1;
-    `;
-
-    daloradiusDb.query(query, [username], (err, results) => {
-      if (err) {
-        console.error("Database error:", err);
-        return res.status(500).send("Error fetching user status from daloRADIUS.");
-      }
-
-      if (results.length > 0) {
-        console.log("User status fetched successfully:", results[0]);
-        res.status(200).json({
-          accessToken,
-          status: results[0],
-        });
-      } else {
-        console.log("No user status found in daloRADIUS.");
-        res.status(200).json({
-          accessToken,
-          status: null, // ไม่มีข้อมูลการใช้งานใน daloRADIUS
-        });
-      }
+    res.status(200).json({
+      accessToken,
+      redirect: "http://192.168.1.67/guest/s/default/status",
     });
+
+    // หยุดการทำงานหลังจากส่ง response
+    return;
   } catch (error) {
     console.error("Keycloak login error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).send(
+    return res.status(error.response?.status || 500).send(
       error.response?.data?.error_description || "Invalid username or password."
     );
   }
+
+  console.log("Fetching user status from daloRADIUS...");
+  const query = `
+    SELECT 
+      radacct.username,
+      radacct.AcctSessionTime AS session_time,
+      radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
+      radacct.AcctStartTime AS last_login
+    FROM radacct
+    WHERE radacct.username = ?
+    ORDER BY radacct.AcctStartTime DESC
+    LIMIT 1;
+  `;
+
+  daloradiusDb.query(query, [username], (err, results) => {
+    if (err) {
+      console.error("Database error:", err);
+      return res.status(500).send("Error fetching user status from daloRADIUS.");
+    }
+
+    if (results.length > 0) {
+      console.log("User status fetched successfully:", results[0]);
+      return res.status(200).json({
+        accessToken,
+        status: results[0],
+      });
+    } else {
+      console.log("No user status found in daloRADIUS.");
+      return res.status(200).json({
+        accessToken,
+        status: null,
+      });
+    }
+  });
 });
+
 
 // API Register
 app.post("/api/register", async (req, res) => {
@@ -298,6 +307,33 @@ app.get("/api/status/:username", verifyToken, async (req, res) => {
   }
 });
 //--------------
+app.post("/api/unifi-authorize", async (req, res) => {
+  try {
+    const response = await axios.post(
+      "https://192.168.1.1/proxy/network/api/s/default/cmd/stamgr",
+      {
+        cmd: "authorize-guest",
+        mac: req.body.mac,
+        minutes: 1440,
+      },
+      {
+        headers: {
+          "X-API-KEY": process.env.UNIFI_API_KEY,  // ใช้ API Key จาก .env
+          "Accept": "application/json",
+        },
+        httpsAgent: new https.Agent({
+          rejectUnauthorized: false, // ปิดการตรวจสอบ SSL
+        }),
+      }
+    );
+
+    res.status(200).json(response.data);
+  } catch (error) {
+    console.error("UniFi authorization failed:", error.message);
+    res.status(500).json({ error: "Failed to authorize with UniFi." });
+  }
+});
+
 
 //--------------------------------------------------------------------------------------
 // Root Endpoint
