@@ -42,6 +42,7 @@ app.use(cors({
   methods: ['GET', 'POST'],}));
 app.use(bodyParser.json());
 app.use(helmet());
+// Middleware Limit login
 
 // Verify Token Middleware
 const verifyToken = (req, res, next) => {
@@ -77,6 +78,19 @@ const verifyToken = (req, res, next) => {
       res.status(500).send("Internal Server Error");
     });
 };
+const forceRadiusSync = (username) => {
+  return new Promise((resolve, reject) => {
+    daloradiusDb.query(`CALL update_radius_cache(?)`, [username], (err) => {
+      if (err) {
+        console.error("Error calling stored procedure:", err);
+        reject(err);
+      } else {
+        console.log("RADIUS cache updated successfully for user:", username);
+        resolve();
+      }
+    });
+  });
+};
 
 // API LOGIN
 app.post("/api/login", async (req, res) => {
@@ -87,8 +101,35 @@ app.post("/api/login", async (req, res) => {
   }
 
   try {
-    console.log("Authenticating user in Keycloak...");
+    console.log("Fetching user password from Daloradius...");
 
+    // 🔹 ค้นหารหัสผ่านที่ถูก Hash ในฐานข้อมูล `radcheck`
+    const query = `SELECT value FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'`;
+
+    // 👉 ใช้ Promise แทน Callback เพื่อให้รองรับ `await`
+    const results = await new Promise((resolve, reject) => {
+      daloradiusDb.query(query, [username], (err, results) => {
+        if (err) reject(err);
+        else resolve(results);
+      });
+    });
+
+    if (results.length === 0) {
+      return res.status(401).send("Invalid username or password.");
+    }
+
+    const hashedPassword = results[0].value; //  ได้รหัสผ่านที่ถูก Hash จากฐานข้อมูล
+
+    // 🔹 ตรวจสอบรหัสผ่านที่ผู้ใช้ป้อนกับที่ถูก Hash ใน DB
+    const passwordMatch = await bcrypt.compare(password, hashedPassword);
+
+    if (!passwordMatch) {
+      return res.status(401).send("Invalid username or password.");
+    }
+
+    console.log("Password verified. Authenticating user in Keycloak...");
+
+    // 🔹 ทำการตรวจสอบกับ Keycloak
     const params = new URLSearchParams();
     params.append("client_id", process.env.KEYCLOAK_CLIENT_ID);
     params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET);
@@ -109,69 +150,70 @@ app.post("/api/login", async (req, res) => {
     const accessToken = keycloakResponse.data.access_token;
     console.log("Access Token received from Keycloak:", accessToken);
 
+    await forceRadiusSync(username);
+    console.log("RADIUS data synchronized successfully.");
+
+    console.log("Fetching user status from daloRADIUS...");
+
+    // 🔹 Query ดึงข้อมูลจาก daloRADIUS
+    const userStatusQuery = `
+      SELECT 
+        radacct.username,
+        radacct.AcctSessionTime AS session_time,
+        radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
+        radacct.AcctStartTime AS last_login
+      FROM radacct
+      WHERE radacct.username = ?
+      ORDER BY radacct.AcctStartTime DESC
+      LIMIT 1;
+    `;
+
+    const userStatusResults = await new Promise((resolve, reject) => {
+      daloradiusDb.query(userStatusQuery, [username], (err, results) => {
+        if (err) reject(err);
+        else resolve(results);
+      });
+    });
+
+    const userStatus = userStatusResults.length > 0 ? userStatusResults[0] : null;
+    console.log("User status fetched successfully:", userStatus);
+
+    //  ส่งข้อมูลกลับไปยัง Client
     res.status(200).json({
       accessToken,
+      status: userStatus,
       redirect: "http://192.168.1.67/guest/s/default/status",
     });
 
-    // หยุดการทำงานหลังจากส่ง response
-    return;
   } catch (error) {
-    console.error("Keycloak login error:", error.response?.data || error.message);
-    return res.status(error.response?.status || 500).send(
-      error.response?.data?.error_description || "Invalid username or password."
+    console.error("Login error:", error.response?.data || error.message);
+    res.status(error.response?.status || 500).send(
+      error.response?.data?.error_description || "Internal Server Error."
     );
   }
-
-  console.log("Fetching user status from daloRADIUS...");
-  const query = `
-    SELECT 
-      radacct.username,
-      radacct.AcctSessionTime AS session_time,
-      radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
-      radacct.AcctStartTime AS last_login
-    FROM radacct
-    WHERE radacct.username = ?
-    ORDER BY radacct.AcctStartTime DESC
-    LIMIT 1;
-  `;
-
-  daloradiusDb.query(query, [username], (err, results) => {
-    if (err) {
-      console.error("Database error:", err);
-      return res.status(500).send("Error fetching user status from daloRADIUS.");
-    }
-
-    if (results.length > 0) {
-      console.log("User status fetched successfully:", results[0]);
-      return res.status(200).json({
-        accessToken,
-        status: results[0],
-      });
-    } else {
-      console.log("No user status found in daloRADIUS.");
-      return res.status(200).json({
-        accessToken,
-        status: null,
-      });
-    }
-  });
 });
 
-
-// API Register
+///----------------------------------------------
+// API Register - เพิ่ม Log เพื่อตรวจสอบการทำงานทุกขั้นตอน
 app.post("/api/register", async (req, res) => {
   console.log("Request Body:", req.body);
 
+  // รับค่าข้อมูลจากผู้ใช้
   const { username, email, password, firstName, lastName, mobilePhone, idpassport } = req.body;
 
-  if (!username || !password || !firstName || !lastName || !mobilePhone || !idpassport) {
-    return res.status(400).send("All fields are required: Username, Password, First Name, Last Name, Mobile Phone, and ID Passport.");
+  // ตรวจสอบว่าข้อมูลที่จำเป็นครบถ้วน
+  if (!username || !email || !password || !firstName || !lastName || !mobilePhone || !idpassport) {
+    console.log("Missing required fields");
+    return res.status(406).send("All fields are required.");
   }
 
   try {
-    // Step 1: Register in Keycloak
-    console.log("Registering user in Keycloak...");
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    console.log("Hashed Password:", hashedPassword);
+
+    console.log("Step 1: Requesting Keycloak admin token...");
+
     const tokenResponse = await axios.post(
       `${keycloakBaseUrl}/realms/${keycloakRealm}/protocol/openid-connect/token`,
       new URLSearchParams({
@@ -187,10 +229,10 @@ app.post("/api/register", async (req, res) => {
     );
 
     const adminToken = tokenResponse.data.access_token;
-    console.log("Admin Token Received:", adminToken);
+    console.log("Step 2: Admin Token Received");
 
-    // สร้างผู้ใช้ใน Keycloak
-    const keycloakResponse = await axios.post(
+    console.log("Step 3: Creating user in Keycloak...");
+    await axios.post(
       `${keycloakBaseUrl}/admin/realms/${keycloakRealm}/users`,
       {
         username,
@@ -214,59 +256,58 @@ app.post("/api/register", async (req, res) => {
       }
     );
 
-    console.log("User created successfully in Keycloak:", keycloakResponse.data);
+    console.log("Step 4: User created successfully in Keycloak");
 
-    // Step 2: Register user in Daloradius
-    console.log("Registering user in Daloradius...");
-    const query = `
-      INSERT INTO radcheck (username, attribute, op, value)
-      VALUES (?, 'Cleartext-Password', ':=', ?)
-    `;
+    // Step 5: Add user to Daloradius
+    console.log("Step 5: Registering user in Daloradius...");
 
-    daloradiusDb.query(query, [username, password], (err, results) => {
-      if (err) {
-        console.error("Error inserting user into Daloradius DB:", err);
-        return res.status(500).send("Error registering user in Daloradius.");
-      }
+    // เพิ่มข้อมูลในตาราง radcheck
+    const radcheckQuery = `INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?), (?, 'Email', ':=', ?), (?, 'Mobile', ':=', ?), (?, 'IDPassport', ':=', ?);`;
 
-      console.log("User credentials added successfully.");
-
-      // เพิ่ม idpassport ลงในตาราง userinfo
-      const userInfoQuery = `
-        INSERT INTO userinfo (username, firstname, lastname, email, mobilephone, idpassport)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `;
-
-      daloradiusDb.query(userInfoQuery, [username, firstName, lastName, email, mobilePhone, idpassport], (err, userInfoResults) => {
+    daloradiusDb.query(
+      radcheckQuery,
+      [username, hashedPassword, username, email, username, mobilePhone, username, idpassport],
+      (err, results) => {
         if (err) {
-          console.error("Error inserting user into userinfo table:", err);
+          console.error("Error inserting user into radcheck:", err);
           return res.status(500).send("Error registering user in Daloradius.");
         }
 
-        console.log("User info and idpassport added successfully to userinfo table.");
+        console.log("Step 6: User credentials and additional details added to radcheck.");
 
-        // Add to radusergroup
-        const groupQuery = `
-          INSERT INTO radusergroup (username, groupname, priority)
-          VALUES (?, 'guest', 1)
-        `;
+        // เพิ่มข้อมูลในตาราง userinfo
+        const userInfoQuery = `INSERT INTO userinfo (username, firstname, lastname, email, mobilephone, idpassport) VALUES (?, ?, ?, ?, ?, ?)`;
 
-        daloradiusDb.query(groupQuery, [username], (err, groupResults) => {
+        daloradiusDb.query(userInfoQuery, [username, firstName, lastName, email, mobilePhone, idpassport], (err, userInfoResults) => {
           if (err) {
-            console.error("Error inserting user into radusergroup:", err);
-            return res.status(500).send("Error registering user in radusergroup.");
+            console.error("Error inserting user info:", err);
+            return res.status(500).send("Error adding user details.");
           }
 
-          console.log("User added successfully to radusergroup.");
-          res.status(201).send("User registered successfully in both Keycloak and Daloradius.");
+          console.log("Step 7: User info added to userinfo table.");
+
+          // เพิ่มข้อมูลในตาราง radusergroup เพื่อกำหนดกลุ่มผู้ใช้
+          const groupQuery = `INSERT INTO radusergroup (username, groupname, priority) VALUES (?, 'GuestUser', 3)`;
+
+          daloradiusDb.query(groupQuery, [username], (err, groupResults) => {
+            if (err) {
+              console.error("Error inserting into radusergroup:", err);
+              return res.status(500).send("Error registering user group.");
+            }
+
+            console.log("Step 8: User added to radusergroup.");
+            console.log("Registration process completed successfully.");
+            res.status(201).send("User registered successfully.");
+          });
         });
-      });
-    });
+      }
+    );
   } catch (error) {
-    console.error("Keycloak Error:", error.response?.data || error.message);
-    res.status(500).send("Error registering user");
+    console.error("Keycloak Registration Error:", error.response?.data || error.message);
+    res.status(500).send("Error registering user.");
   }
 });
+
 
 //----------------------Api/status-------------------------------------------------------------
 app.get("/api/status/:username", verifyToken, async (req, res) => {
@@ -275,8 +316,8 @@ app.get("/api/status/:username", verifyToken, async (req, res) => {
   try {
     console.log("Fetching user status for:", username);
 
-    // Query ดึงข้อมูลจาก Daloradius
-    const query = `
+    // Query ดึงข้อมูลผู้ใช้จาก Daloradius
+    const userQuery = `
       SELECT 
         userinfo.firstname,
         userinfo.lastname,
@@ -288,52 +329,163 @@ app.get("/api/status/:username", verifyToken, async (req, res) => {
       WHERE userinfo.username = ?
     `;
 
-    daloradiusDb.query(query, [username], (err, results) => {
-      if (err) {
-        console.error("Database error:", err);
-        return res.status(500).send("Internal Server Error");
-      }
+    // Query ดึง Bandwidth จาก radgroupreply
+    const bandwidthQuery = `
+      SELECT 
+        radgroupreply.attribute,
+        radgroupreply.value
+      FROM radusergroup
+      JOIN radgroupreply 
+      ON radusergroup.groupname = radgroupreply.groupname
+      WHERE radusergroup.username = ?
+    `;
 
-      if (results.length === 0) {
-        return res.status(404).send({ error: "User not found" });
-      }
-
-      // ส่งข้อมูลกลับไปยัง Client
-      res.status(200).json(results[0]);
+    // ดึงข้อมูลผู้ใช้
+    const userInfo = await new Promise((resolve, reject) => {
+      daloradiusDb.query(userQuery, [username], (err, results) => {
+        if (err) {
+          console.error("Database error (user):", err);
+          return reject(err);
+        }
+        if (results.length === 0) {
+          return reject(new Error("User not found"));
+        }
+        resolve(results[0]);
+      });
     });
+
+    // ดึงข้อมูล Bandwidth
+    const bandwidthInfo = await new Promise((resolve, reject) => {
+      daloradiusDb.query(bandwidthQuery, [username], (err, results) => {
+        if (err) {
+          console.error("Database error (bandwidth):", err);
+          return reject(err);
+        }
+        const bandwidth = {
+          download: 0,
+          upload: 0,
+        };
+        results.forEach((row) => {
+          if (row.attribute === 'WISPr-Bandwidth-Max-Down') {
+            bandwidth.download = parseInt(row.value, 10) / 1024; // Convert to Mbps
+          } else if (row.attribute === 'WISPr-Bandwidth-Max-Up') {
+            bandwidth.upload = parseInt(row.value, 10) / 1024; // Convert to Mbps
+          }
+        });
+        resolve(bandwidth);
+      });
+    });
+
+    // รวมข้อมูล User และ Bandwidth
+    const response = {
+      firstname: userInfo.firstname,
+      lastname: userInfo.lastname,
+      email: userInfo.email,
+      mobilephone: userInfo.mobilephone,
+      groupname: userInfo.groupname,
+      bandwidth: {
+        download: `${bandwidthInfo.download} Mbps`,
+        upload: `${bandwidthInfo.upload} Mbps`,
+      },
+    };
+
+    // ส่งข้อมูลกลับไปยัง Client
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching user status:", error.message);
+    if (error.message === "User not found") {
+      return res.status(404).send({ error: "User not found" });
+    }
     res.status(500).send("Internal Server Error");
   }
 });
+
 //--------------
 app.post("/api/unifi-authorize", async (req, res) => {
   try {
-    const response = await axios.post(
-      "https://192.168.1.1/proxy/network/api/s/default/cmd/stamgr",
-      {
-        cmd: "authorize-guest",
-        mac: req.body.mac,
-        minutes: 1440,
-      },
-      {
-        headers: {
-          "X-API-KEY": process.env.UNIFI_API_KEY,  // ใช้ API Key จาก .env
-          "Accept": "application/json",
-        },
-        httpsAgent: new https.Agent({
-          rejectUnauthorized: false, // ปิดการตรวจสอบ SSL
-        }),
+    console.log("Received Request Body:", req.body);
+
+    if (!req.body || !req.body.mac || !req.body.username) {
+      console.error("MAC Address or Username is missing in request body");
+      return res.status(400).json({ error: "MAC Address and Username are required" });
+    }
+
+    const macAddress = req.body.mac.trim();
+    const username = req.body.username.trim();
+
+    console.log(`Received MAC: ${macAddress}, Username: ${username}`);
+
+    // ตรวจสอบรูปแบบ MAC Address
+    const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+    if (!macRegex.test(macAddress)) {
+      console.error("Invalid MAC Address format");
+      return res.status(400).json({ error: "Invalid MAC address format" });
+    }
+
+    // 🔹 ดึง Role (Group) จาก daloRADIUS
+    daloradiusDb.query(
+      "SELECT groupname FROM radusergroup WHERE username = ?",
+      [username],
+      (err, results) => {
+        if (err) {
+          console.error("Database query error:", err);
+          return res.status(500).json({ error: "Database error while fetching user group" });
+        }
+
+        if (results.length === 0) {
+          console.error("User group not found in daloRADIUS");
+          return res.status(403).json({ error: "User group not assigned" });
+        }
+
+        const userGroup = results[0].groupname;
+        console.log(`User ${username} belongs to group: ${userGroup}`);
+
+        // 🔹 กำหนด SSID ตาม Group
+        let allowedSSID;
+        if (userGroup === "GuestUser") {
+          allowedSSID = "Test_Co_Ltd_Type_Guest";
+        } else if (userGroup === "Staff") {
+          allowedSSID = "Test_Co_Ltd_Type_Staff";
+        } else {
+          console.error("User group not authorized for any SSID");
+          return res.status(403).json({ error: "User group not authorized for any SSID" });
+        }
+
+        console.log(`User ${username} allowed on SSID: ${allowedSSID}`);
+
+        // 🔹 ส่ง MAC Address ไปยัง UniFi Controller เพื่ออนุญาตให้ใช้งาน WiFi
+        axios
+          .post(
+            "https://192.168.1.1/proxy/network/api/s/default/cmd/stamgr",
+            {
+              cmd: "authorize-guest",
+              mac: macAddress,
+              ssid: allowedSSID,
+              minutes: 60, // อนุญาตให้ใช้งาน 60 นาที
+            },
+            {
+              headers: {
+                "X-API-KEY": process.env.UNIFI_API_KEY,
+                "Accept": "application/json",
+              },
+              httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+            }
+          )
+          .then((response) => {
+            console.log(`User ${username} authorized for ${allowedSSID}:`, response.data);
+            res.status(200).json({ message: `User ${username} authorized for ${allowedSSID}` });
+          })
+          .catch((error) => {
+            console.error("UniFi authorization failed:", error.message);
+            res.status(500).json({ error: "Failed to authorize with UniFi." });
+          });
       }
     );
-
-    res.status(200).json(response.data);
   } catch (error) {
-    console.error("UniFi authorization failed:", error.message);
-    res.status(500).json({ error: "Failed to authorize with UniFi." });
+    console.error("Unhandled error:", error.message);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
 
 //--------------------------------------------------------------------------------------
 // Root Endpoint

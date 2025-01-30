@@ -26,18 +26,22 @@ const Register: React.FC = () => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-
+  
     try {
       await axios.post("http://192.168.1.67/api/register", formData);
       setSuccess("Registration successful! Redirecting to login...");
+  
+      // เก็บ MAC Address ไว้ก่อน redirect
+      const macAddress = localStorage.getItem("macAddress");
+  
       setTimeout(() => {
-        navigate("/");
+        navigate(`/?id=${macAddress}`);
       }, 2000);
     } catch (err: any) {
       setError(err.response?.data || "Error registering user");
     }
   };
-
+  
   return (
     <div className="split-container">
       {/* Left Section */}

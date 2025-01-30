@@ -2,12 +2,18 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import "./status.css";
 
+interface Bandwidth {
+  download: number; // In Kbps from API
+  upload: number;   // In Kbps from API
+}
+
 interface UserStatus {
   firstname: string;
   lastname: string;
   email: string;
   mobilephone: string;
   groupname: string;
+  bandwidth?: Bandwidth; // Optional field for bandwidth
 }
 
 const StatusPage: React.FC = () => {
@@ -42,7 +48,6 @@ const StatusPage: React.FC = () => {
   
     fetchStatus();
   }, []);
-  
 
   return (
     <div className="main-container">
