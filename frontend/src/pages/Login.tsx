@@ -7,6 +7,7 @@ import LoadingButton from '@mui/lab/LoadingButton';
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [currentSSID, setCurrentSSID] = useState(""); // ✅ เพิ่มตัวแปรเพื่อเก็บ SSID
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -25,6 +26,27 @@ const LoginPage: React.FC = () => {
 
     console.log("MAC Address from URL or storage:", macFromUrl || localStorage.getItem("macAddress"));
   }, []);
+  
+  useEffect(() => {
+    const fetchSSID = async () => {
+      try {
+        const response = await axios.get(`${apiBaseUrl}/api/get-current-ssid`);
+        if (response.data && response.data.ssid) {
+          setCurrentSSID(response.data.ssid);
+          console.log("Fetched SSID:", response.data.ssid);
+        } else {
+          console.error("SSID not found in API response.");
+        }
+      } catch (error) {
+        console.error("Error fetching SSID:", error);
+      }
+    };
+  
+    fetchSSID();
+  }, []);
+  
+
+  console.log("Current SSID before sending request:", currentSSID);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +55,7 @@ const LoginPage: React.FC = () => {
 
     try {
       console.log("Logging in user:", username);
+      
 
       const response = await axios.post(`${apiBaseUrl}/api/login`, {
         username,
@@ -49,12 +72,16 @@ const LoginPage: React.FC = () => {
       }
 
       console.log(`Authorizing ${username} (${macAddress}) on UniFi`);
+      console.log("Username:", username);
+      console.log("Current SSID before sending request:", currentSSID);
 
       // 🔹 ส่ง MAC Address + Username ไปตรวจสอบที่ API
       await axios.post(`${apiBaseUrl}/api/unifi-authorize`, {
         mac: macAddress,
         username: username, // ส่ง username ไปให้ API ตรวจสอบ Role
+        ssid: currentSSID, // ต้องส่งค่า SSID ไปให้ API ตรวจสอบ
       });
+      
 
       window.location.href = response.data.redirect;
     } catch (err: any) {

@@ -415,18 +415,11 @@ app.post("/api/unifi-authorize", async (req, res) => {
 
     console.log(`Received MAC: ${macAddress}, Username: ${username}`);
 
-    // ตรวจสอบรูปแบบ MAC Address
-    const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
-    if (!macRegex.test(macAddress)) {
-      console.error("Invalid MAC Address format");
-      return res.status(400).json({ error: "Invalid MAC address format" });
-    }
-
     // 🔹 ดึง Role (Group) จาก daloRADIUS
     daloradiusDb.query(
       "SELECT groupname FROM radusergroup WHERE username = ?",
       [username],
-      (err, results) => {
+      async (err, results) => {
         if (err) {
           console.error("Database query error:", err);
           return res.status(500).json({ error: "Database error while fetching user group" });
@@ -440,8 +433,8 @@ app.post("/api/unifi-authorize", async (req, res) => {
         const userGroup = results[0].groupname;
         console.log(`User ${username} belongs to group: ${userGroup}`);
 
-        // 🔹 กำหนด SSID ตาม Group
-        let allowedSSID;
+        // ✅ กำหนดค่า SSID ตาม Group
+        let allowedSSID = null;
         if (userGroup === "GuestUser") {
           allowedSSID = "Test_Co_Ltd_Type_Guest";
         } else if (userGroup === "Staff") {
@@ -451,17 +444,59 @@ app.post("/api/unifi-authorize", async (req, res) => {
           return res.status(403).json({ error: "User group not authorized for any SSID" });
         }
 
-        console.log(`User ${username} allowed on SSID: ${allowedSSID}`);
+        console.log(`User ${username} should be connected to: ${allowedSSID}`);
 
-        // 🔹 ส่ง MAC Address ไปยัง UniFi Controller เพื่ออนุญาตให้ใช้งาน WiFi
-        axios
-          .post(
+        // 🔹 ตรวจสอบว่า MAC Address นี้กำลังเชื่อมต่อกับ SSID ที่ถูกต้อง
+        let client;
+        try {
+          const unifiResponse = await axios.get(
+            "https://192.168.1.1/proxy/network/api/s/default/stat/sta",
+            {
+              headers: {
+                "X-API-KEY": process.env.UNIFI_API_KEY,
+                "Accept": "application/json",
+              },
+              httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+            }
+          );
+
+          const clients = unifiResponse.data.data;
+          console.log("Full UniFi Response:", JSON.stringify(unifiResponse.data, null, 2)); // ✅ Log ทั้งหมดเพื่อ Debug
+
+          client = clients.find(
+            (c) => c.mac.toLowerCase() === macAddress.toLowerCase() && c.is_wired === false
+          );
+        } catch (error) {
+          console.error("Failed to fetch connected clients from UniFi:", error.message);
+          return res.status(500).json({ error: "Failed to fetch connected clients from UniFi." });
+        }
+
+        if (!client) {
+          console.error(`MAC Address ${macAddress} not found in UniFi Controller`);
+          console.error("List of all detected clients:", JSON.stringify(clients, null, 2));
+          return res.status(403).json({ error: "MAC Address not connected to any SSID" });
+        }
+
+        if (!client.ap_mac) { 
+          console.error(`MAC Address ${macAddress} is not a wireless client.`);
+          return res.status(403).json({ error: "Device is not connected via Wi-Fi" });
+        }
+
+        console.log(`MAC Address ${macAddress} is connected to SSID: ${client.essid}`);
+
+        if (client.essid !== allowedSSID) {
+          console.error(`User ${username} is connected to ${client.essid} but allowed on ${allowedSSID}`);
+          return res.status(403).json({ error: `Unauthorized SSID access: ${client.essid}` });
+        }
+        
+        // ✅ ส่งคำสั่ง authorize-guest ไปยัง UniFi Controller เพื่อให้ MAC ใช้อินเทอร์เน็ตได้
+        try {
+          const authorizeResponse = await axios.post(
             "https://192.168.1.1/proxy/network/api/s/default/cmd/stamgr",
             {
               cmd: "authorize-guest",
               mac: macAddress,
-              ssid: allowedSSID,
-              minutes: 60, // อนุญาตให้ใช้งาน 60 นาที
+              minutes: 1, // ✅ อนุญาตให้ใช้งานอินเทอร์เน็ต 1 นาที
             },
             {
               headers: {
@@ -470,22 +505,27 @@ app.post("/api/unifi-authorize", async (req, res) => {
               },
               httpsAgent: new https.Agent({ rejectUnauthorized: false }),
             }
-          )
-          .then((response) => {
-            console.log(`User ${username} authorized for ${allowedSSID}:`, response.data);
-            res.status(200).json({ message: `User ${username} authorized for ${allowedSSID}` });
-          })
-          .catch((error) => {
-            console.error("UniFi authorization failed:", error.message);
-            res.status(500).json({ error: "Failed to authorize with UniFi." });
-          });
+          );
+        
+          console.log(`User ${username} authorized for internet access:`, authorizeResponse.data);
+        } catch (error) {
+          console.error("UniFi authorization failed:", error.message);
+          return res.status(500).json({ error: "Failed to authorize with UniFi." });
+        }
+        
+        res.status(200).json({ message: `User ${username} authorized for ${allowedSSID}` });
+        
       }
     );
+    
   } catch (error) {
     console.error("Unhandled error:", error.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+
+
 
 //--------------------------------------------------------------------------------------
 // Root Endpoint
