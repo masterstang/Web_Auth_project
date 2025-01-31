@@ -3,6 +3,7 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import "./login.css";
 import LoadingButton from '@mui/lab/LoadingButton';
+import DOMPurify from 'dompurify';
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState("");
@@ -58,12 +59,12 @@ const LoginPage: React.FC = () => {
       
 
       const response = await axios.post(`${apiBaseUrl}/api/login`, {
-        username,
+        username: DOMPurify.sanitize(username), // ✅ ป้องกัน XSS
         password,
       });
 
       localStorage.setItem("token", response.data.accessToken);
-      localStorage.setItem("username", username);
+      localStorage.setItem("username", DOMPurify.sanitize(username)); // ✅ ป้องกัน XSS
 
       // ดึง MAC Address จาก localStorage ถ้าไม่มีใน URL
       const macAddress = localStorage.getItem("macAddress");

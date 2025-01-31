@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import "./status.css";
+import DOMPurify from 'dompurify';
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://192.168.1.67";
+console.log("API Base URL:", apiBaseUrl);
 
 interface Bandwidth {
   download: number; // In Kbps from API
@@ -31,14 +35,9 @@ const StatusPage: React.FC = () => {
       }
   
       try {
-        const response = await axios.get(
-          `http://192.168.1.67/api/status/${username}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const response = await axios.get(`${apiBaseUrl}/api/status/${DOMPurify.sanitize(username)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         setUserStatus(response.data);
       } catch (err: any) {
         console.error("Error fetching status:", err.response?.data);

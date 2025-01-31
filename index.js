@@ -8,6 +8,10 @@ import axios from "axios";
 import mysql from "mysql";
 import bcrypt from "bcrypt";
 import helmet from "helmet";
+import { body, validationResult } from "express-validator";
+import { JSDOM } from "jsdom";
+import createDOMPurify from "dompurify";
+
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -42,6 +46,16 @@ app.use(cors({
   methods: ['GET', 'POST'],}));
 app.use(bodyParser.json());
 app.use(helmet());
+//Header CSP (Content Security Policy)
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none';"
+  );
+  next();
+});
+
+
 // Middleware Limit login
 
 // Verify Token Middleware
@@ -91,7 +105,20 @@ const forceRadiusSync = (username) => {
     });
   });
 };
+//----------Dompurify-----------------------------------------------
+const window = new JSDOM("").window;
+const DOMPurify = createDOMPurify(window);
+// 🛡 ใช้ express-validator กรองข้อมูลที่รับจากผู้ใช้
+const validateUserInput = [
+  body("username").trim().escape(),
+  body("email").trim().isEmail().normalizeEmail(),
+  body("password").trim(),
+  body("firstName").trim().escape(),
+  body("lastName").trim().escape(),
+  body("mobilePhone").trim().escape(),
+];
 
+//-------------------------------
 // API LOGIN
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
@@ -194,22 +221,32 @@ app.post("/api/login", async (req, res) => {
 });
 
 ///----------------------------------------------
-// API Register - เพิ่ม Log เพื่อตรวจสอบการทำงานทุกขั้นตอน
-app.post("/api/register", async (req, res) => {
+
+app.post("/api/register", validateUserInput, async (req, res) => {
   console.log("Request Body:", req.body);
 
-  // รับค่าข้อมูลจากผู้ใช้
-  const { username, email, password, firstName, lastName, mobilePhone, idpassport } = req.body;
-
-  // ตรวจสอบว่าข้อมูลที่จำเป็นครบถ้วน
-  if (!username || !email || !password || !firstName || !lastName || !mobilePhone || !idpassport) {
-    console.log("Missing required fields");
-    return res.status(406).send("All fields are required.");
+  // ตรวจสอบความถูกต้องของข้อมูล
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: "Invalid input data", details: errors.array() });
   }
 
+  // 🔹 ป้องกัน XSS ด้วย DOMPurify
+  const cleanData = {
+    username: DOMPurify.sanitize(req.body.username),
+    email: DOMPurify.sanitize(req.body.email),
+    password: req.body.password, // รหัสผ่านไม่ต้อง Escape
+    firstName: DOMPurify.sanitize(req.body.firstName),
+    lastName: DOMPurify.sanitize(req.body.lastName),
+    mobilePhone: DOMPurify.sanitize(req.body.mobilePhone),
+    idpassport: DOMPurify.sanitize(req.body.idpassport),
+  };
+
   try {
+    console.log("Cleaned Data:", cleanData);
+
     const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    const hashedPassword = await bcrypt.hash(cleanData.password, saltRounds);
     console.log("Hashed Password:", hashedPassword);
 
     console.log("Step 1: Requesting Keycloak admin token...");
@@ -222,9 +259,7 @@ app.post("/api/register", async (req, res) => {
         grant_type: "client_credentials",
       }).toString(),
       {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
       }
     );
 
@@ -235,15 +270,15 @@ app.post("/api/register", async (req, res) => {
     await axios.post(
       `${keycloakBaseUrl}/admin/realms/${keycloakRealm}/users`,
       {
-        username,
-        email,
+        username: cleanData.username,
+        email: cleanData.email,
         enabled: true,
-        firstName,
-        lastName,
+        firstName: cleanData.firstName,
+        lastName: cleanData.lastName,
         credentials: [
           {
             type: "password",
-            value: password,
+            value: cleanData.password,
             temporary: false,
           },
         ],
@@ -264,50 +299,66 @@ app.post("/api/register", async (req, res) => {
     // เพิ่มข้อมูลในตาราง radcheck
     const radcheckQuery = `INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?), (?, 'Email', ':=', ?), (?, 'Mobile', ':=', ?), (?, 'IDPassport', ':=', ?);`;
 
-    daloradiusDb.query(
-      radcheckQuery,
-      [username, hashedPassword, username, email, username, mobilePhone, username, idpassport],
-      (err, results) => {
-        if (err) {
-          console.error("Error inserting user into radcheck:", err);
-          return res.status(500).send("Error registering user in Daloradius.");
+    await new Promise((resolve, reject) => {
+      daloradiusDb.query(
+        radcheckQuery,
+        [cleanData.username, hashedPassword, cleanData.username, cleanData.email, cleanData.username, cleanData.mobilePhone, cleanData.username, cleanData.idpassport],
+        (err) => {
+          if (err) {
+            console.error("Error inserting user into radcheck:", err);
+            reject(err);
+          } else {
+            resolve();
+          }
         }
+      );
+    });
 
-        console.log("Step 6: User credentials and additional details added to radcheck.");
+    console.log("Step 6: User credentials and additional details added to radcheck.");
 
-        // เพิ่มข้อมูลในตาราง userinfo
-        const userInfoQuery = `INSERT INTO userinfo (username, firstname, lastname, email, mobilephone, idpassport) VALUES (?, ?, ?, ?, ?, ?)`;
+    // เพิ่มข้อมูลในตาราง userinfo
+    const userInfoQuery = `INSERT INTO userinfo (username, firstname, lastname, email, mobilephone, idpassport) VALUES (?, ?, ?, ?, ?, ?)`;
 
-        daloradiusDb.query(userInfoQuery, [username, firstName, lastName, email, mobilePhone, idpassport], (err, userInfoResults) => {
+    await new Promise((resolve, reject) => {
+      daloradiusDb.query(
+        userInfoQuery,
+        [cleanData.username, cleanData.firstName, cleanData.lastName, cleanData.email, cleanData.mobilePhone, cleanData.idpassport],
+        (err) => {
           if (err) {
             console.error("Error inserting user info:", err);
-            return res.status(500).send("Error adding user details.");
+            reject(err);
+          } else {
+            resolve();
           }
+        }
+      );
+    });
 
-          console.log("Step 7: User info added to userinfo table.");
+    console.log("Step 7: User info added to userinfo table.");
 
-          // เพิ่มข้อมูลในตาราง radusergroup เพื่อกำหนดกลุ่มผู้ใช้
-          const groupQuery = `INSERT INTO radusergroup (username, groupname, priority) VALUES (?, 'GuestUser', 3)`;
+    // เพิ่มข้อมูลในตาราง radusergroup เพื่อกำหนดกลุ่มผู้ใช้
+    const groupQuery = `INSERT INTO radusergroup (username, groupname, priority) VALUES (?, 'GuestUser', 3)`;
 
-          daloradiusDb.query(groupQuery, [username], (err, groupResults) => {
-            if (err) {
-              console.error("Error inserting into radusergroup:", err);
-              return res.status(500).send("Error registering user group.");
-            }
+    await new Promise((resolve, reject) => {
+      daloradiusDb.query(groupQuery, [cleanData.username], (err) => {
+        if (err) {
+          console.error("Error inserting into radusergroup:", err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
 
-            console.log("Step 8: User added to radusergroup.");
-            console.log("Registration process completed successfully.");
-            res.status(201).send("User registered successfully.");
-          });
-        });
-      }
-    );
+    console.log("Step 8: User added to radusergroup.");
+    console.log("Registration process completed successfully.");
+    res.status(201).send("User registered successfully.");
+
   } catch (error) {
     console.error("Keycloak Registration Error:", error.response?.data || error.message);
     res.status(500).send("Error registering user.");
   }
 });
-
 
 //----------------------Api/status-------------------------------------------------------------
 app.get("/api/status/:username", verifyToken, async (req, res) => {

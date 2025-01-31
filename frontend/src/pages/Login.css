@@ -161,6 +161,13 @@ input:focus {
   margin-top: 10px; /* ระยะห่างด้านบน */
   text-align: center; /* จัดข้อความให้อยู่ตรงกลาง */
 }
+/* reCAPTCHA Styling */
+.g-recaptcha {
+  display: flex;
+  justify-content: center;
+  margin: 15px 0;
+}
+
 
 @keyframes fadeIn {
   from {
