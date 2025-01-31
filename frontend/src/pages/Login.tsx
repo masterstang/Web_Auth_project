@@ -32,16 +32,30 @@ const LoginPage: React.FC = () => {
     setError(null);
   
     try {
+<<<<<<< HEAD
       let loginEndpoint = currentSSID === "Test_Co_Ltd_Type_Guest" ? "/api/login-guest" : "/api/login-staff";
   
       const response = await axios.post(`${apiBaseUrl}${loginEndpoint}`, {
         username: DOMPurify.sanitize(username),
+=======
+      console.log("Logging in user:", username);
+      
+
+      const response = await axios.post(`${apiBaseUrl}/api/login`, {
+        username: DOMPurify.sanitize(username), // ✅ ป้องกัน XSS
+>>>>>>> 75c5f28 (DOMPurify)
         password,
       });
   
       localStorage.setItem("token", response.data.accessToken);
+<<<<<<< HEAD
       localStorage.setItem("username", DOMPurify.sanitize(username));
   
+=======
+      localStorage.setItem("username", DOMPurify.sanitize(username)); // ✅ ป้องกัน XSS
+
+      // ดึง MAC Address จาก localStorage ถ้าไม่มีใน URL
+>>>>>>> 75c5f28 (DOMPurify)
       const macAddress = localStorage.getItem("macAddress");
       if (!macAddress) {
         throw new Error("MAC Address is missing. Please reconnect to Wi-Fi.");
