@@ -120,7 +120,7 @@ const validateUserInput = [
 
 //-------------------------------
 // API LOGIN
-app.post("/api/login-guest", async (req, res) => {
+app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -128,10 +128,12 @@ app.post("/api/login-guest", async (req, res) => {
   }
 
   try {
-    console.log("Fetching user password from Daloradius for Guest...");
+    console.log("Fetching user password from Daloradius...");
 
+    // 🔹 ค้นหารหัสผ่านที่ถูก Hash ในฐานข้อมูล `radcheck`
     const query = `SELECT value FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'`;
 
+    // 👉 ใช้ Promise แทน Callback เพื่อให้รองรับ `await`
     const results = await new Promise((resolve, reject) => {
       daloradiusDb.query(query, [username], (err, results) => {
         if (err) reject(err);
@@ -143,16 +145,18 @@ app.post("/api/login-guest", async (req, res) => {
       return res.status(401).send("Invalid username or password.");
     }
 
-    const hashedPassword = results[0].value;
+    const hashedPassword = results[0].value; //  ได้รหัสผ่านที่ถูก Hash จากฐานข้อมูล
 
+    // 🔹 ตรวจสอบรหัสผ่านที่ผู้ใช้ป้อนกับที่ถูก Hash ใน DB
     const passwordMatch = await bcrypt.compare(password, hashedPassword);
 
     if (!passwordMatch) {
       return res.status(401).send("Invalid username or password.");
     }
 
-    console.log("Password verified for Guest. Authenticating user in Keycloak...");
+    console.log("Password verified. Authenticating user in Keycloak...");
 
+    // 🔹 ทำการตรวจสอบกับ Keycloak
     const params = new URLSearchParams();
     params.append("client_id", process.env.KEYCLOAK_CLIENT_ID);
     params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET);
@@ -164,22 +168,21 @@ app.post("/api/login-guest", async (req, res) => {
       `${process.env.KEYCLOAK_URL}/realms/${process.env.KEYCLOAK_REALM}/protocol/openid-connect/token`,
       params,
       {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
       }
     );
 
     const accessToken = keycloakResponse.data.access_token;
-    console.log("Guest Access Token received:", accessToken);
+    console.log("Access Token received from Keycloak:", accessToken);
 
-    await new Promise((resolve, reject) => {
-      daloradiusDb.query(`CALL update_radius_cache(?)`, [username], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    await forceRadiusSync(username);
+    console.log("RADIUS data synchronized successfully.");
 
-    console.log("Guest RADIUS data synchronized successfully.");
+    console.log("Fetching user status from daloRADIUS...");
 
+    // 🔹 Query ดึงข้อมูลจาก daloRADIUS
     const userStatusQuery = `
       SELECT 
         radacct.username,
@@ -200,8 +203,9 @@ app.post("/api/login-guest", async (req, res) => {
     });
 
     const userStatus = userStatusResults.length > 0 ? userStatusResults[0] : null;
-    console.log("Guest user status fetched successfully:", userStatus);
+    console.log("User status fetched successfully:", userStatus);
 
+    //  ส่งข้อมูลกลับไปยัง Client
     res.status(200).json({
       accessToken,
       status: userStatus,
@@ -209,103 +213,7 @@ app.post("/api/login-guest", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Guest Login error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).send(
-      error.response?.data?.error_description || "Internal Server Error."
-    );
-  }
-});
-
-app.post("/api/login-staff", async (req, res) => {
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).send("Username and Password are required.");
-  }
-
-  try {
-    console.log("Fetching user password from Daloradius for Staff...");
-
-    const query = `SELECT value FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'`;
-
-    const results = await new Promise((resolve, reject) => {
-      daloradiusDb.query(query, [username], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
-      });
-    });
-
-    if (results.length === 0) {
-      return res.status(401).send("Invalid username or password.");
-    }
-
-    const hashedPassword = results[0].value;
-
-    const passwordMatch = await bcrypt.compare(password, hashedPassword);
-
-    if (!passwordMatch) {
-      return res.status(401).send("Invalid username or password.");
-    }
-
-    console.log("Password verified for Staff. Authenticating user in Keycloak...");
-
-    const params = new URLSearchParams();
-    params.append("client_id", process.env.KEYCLOAK_CLIENT_ID);
-    params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET);
-    params.append("username", username);
-    params.append("password", password);
-    params.append("grant_type", "password");
-
-    const keycloakResponse = await axios.post(
-      `${process.env.KEYCLOAK_URL}/realms/${process.env.KEYCLOAK_REALM}/protocol/openid-connect/token`,
-      params,
-      {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      }
-    );
-
-    const accessToken = keycloakResponse.data.access_token;
-    console.log("Staff Access Token received:", accessToken);
-
-    await new Promise((resolve, reject) => {
-      daloradiusDb.query(`CALL update_radius_cache(?)`, [username], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    console.log("Staff RADIUS data synchronized successfully.");
-
-    const userStatusQuery = `
-      SELECT 
-        radacct.username,
-        radacct.AcctSessionTime AS session_time,
-        radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
-        radacct.AcctStartTime AS last_login
-      FROM radacct
-      WHERE radacct.username = ?
-      ORDER BY radacct.AcctStartTime DESC
-      LIMIT 1;
-    `;
-
-    const userStatusResults = await new Promise((resolve, reject) => {
-      daloradiusDb.query(userStatusQuery, [username], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
-      });
-    });
-
-    const userStatus = userStatusResults.length > 0 ? userStatusResults[0] : null;
-    console.log("Staff user status fetched successfully:", userStatus);
-
-    res.status(200).json({
-      accessToken,
-      status: userStatus,
-      redirect: "http://192.168.1.67/staff/s/default/status",
-    });
-
-  } catch (error) {
-    console.error("Staff Login error:", error.response?.data || error.message);
+    console.error("Login error:", error.response?.data || error.message);
     res.status(error.response?.status || 500).send(
       error.response?.data?.error_description || "Internal Server Error."
     );
@@ -556,7 +464,7 @@ app.post("/api/unifi-authorize", async (req, res) => {
     const macAddress = req.body.mac.trim();
     const username = req.body.username.trim();
 
-    console.log(`Checking MAC: ${macAddress}, Username: ${username}`);
+    console.log(`Received MAC: ${macAddress}, Username: ${username}`);
 
     // 🔹 ดึง Role (Group) จาก daloRADIUS
     daloradiusDb.query(
@@ -576,6 +484,7 @@ app.post("/api/unifi-authorize", async (req, res) => {
         const userGroup = results[0].groupname;
         console.log(`User ${username} belongs to group: ${userGroup}`);
 
+        // ✅ กำหนดค่า SSID ตาม Group
         let allowedSSID = null;
         if (userGroup === "GuestUser") {
           allowedSSID = "Test_Co_Ltd_Type_Guest";
@@ -603,6 +512,8 @@ app.post("/api/unifi-authorize", async (req, res) => {
           );
 
           const clients = unifiResponse.data.data;
+          console.log("Full UniFi Response:", JSON.stringify(unifiResponse.data, null, 2)); // ✅ Log ทั้งหมดเพื่อ Debug
+
           client = clients.find(
             (c) => c.mac.toLowerCase() === macAddress.toLowerCase() && c.is_wired === false
           );
@@ -613,6 +524,7 @@ app.post("/api/unifi-authorize", async (req, res) => {
 
         if (!client) {
           console.error(`MAC Address ${macAddress} not found in UniFi Controller`);
+          console.error("List of all detected clients:", JSON.stringify(clients, null, 2));
           return res.status(403).json({ error: "MAC Address not connected to any SSID" });
         }
 
@@ -635,7 +547,7 @@ app.post("/api/unifi-authorize", async (req, res) => {
             {
               cmd: "authorize-guest",
               mac: macAddress,
-              minutes: 1, // ✅ อนุญาตให้ใช้งานอินเทอร์เน็ต 60 นาที
+              minutes: 1, // ✅ อนุญาตให้ใช้งานอินเทอร์เน็ต 1 นาที
             },
             {
               headers: {
@@ -653,8 +565,10 @@ app.post("/api/unifi-authorize", async (req, res) => {
         }
         
         res.status(200).json({ message: `User ${username} authorized for ${allowedSSID}` });
+        
       }
     );
+    
   } catch (error) {
     console.error("Unhandled error:", error.message);
     res.status(500).json({ error: "Internal Server Error" });
@@ -662,31 +576,19 @@ app.post("/api/unifi-authorize", async (req, res) => {
 });
 
 
+
+
 //--------------------------------------------------------------------------------------
 // Root Endpoint
 app.get('/guest/s/default/', (req, res) => {
-  res.redirect('/guest/s/default/login');  // ✅ Redirect ไปที่หน้า Login ของ Guest
+  res.redirect('/');
+});
+app.get("/", (req, res) => {
+  res.send("Server is running! Use /api/login for Keycloak authentication.");
 });
 
-app.get("/", async (req, res) => {
-  try {
-    const ssidResponse = await axios.get("http://192.168.1.67/api/get-current-ssid");
-    const ssid = ssidResponse.data.ssid;
 
-    if (ssid === "Test_Co_Ltd_Type_Guest") {
-      res.redirect("/guest/s/default/login");  // ✅ Guest Login
-    } else if (ssid === "Test_Co_Ltd_Type_Staff") {
-      res.redirect("/staff/s/default/login");  // ✅ Staff Login
-    } else {
-      res.redirect("/guest/s/default/login");  // ✅ Default ไป Guest
-    }
-  } catch (error) {
-    console.error("Error fetching SSID:", error.message);
-    res.redirect("/guest/s/default/login");  // ✅ ถ้าเช็ค SSID ไม่ได้ ให้ Default ไป Guest Login
-  }
-});
-
-// 🔹 เริ่มเซิร์ฟเวอร์
+// เริ่มเซิร์ฟเวอร์
 app.listen(port, () => {
   console.log(`Server is running on http://192.168.1.67:${port}`);
 });

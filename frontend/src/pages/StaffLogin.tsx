@@ -5,11 +5,11 @@ import "./login.css";
 import LoadingButton from '@mui/lab/LoadingButton';
 import DOMPurify from 'dompurify';
 
-const LoginPage: React.FC = () => {
+const LoginStaff: React.FC = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [currentSSID, setCurrentSSID] = useState(""); // ✅ เพิ่มตัวแปรเพื่อเก็บ SSID
   const [error, setError] = useState<string | null>(null);
+  const [currentSSID, setCurrentSSID] = useState(""); // ✅ เพิ่มตัวแปรเพื่อเก็บ SSID
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -26,6 +26,7 @@ const LoginPage: React.FC = () => {
     console.log("MAC Address from URL or storage:", macFromUrl || localStorage.getItem("macAddress"));
   }, []);
   
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -64,68 +65,19 @@ const LoginPage: React.FC = () => {
     }
   };
   
-  const handleRegisterRedirect = () => {
-    navigate(`/register?${window.location.search}`);  // ส่งพารามิเตอร์ URL ไปยังหน้าสมัครสมาชิก
-  };
-
   return (
-    <div className="split-container">
-      <div className="left-section">
-        <h1>Welcome</h1>
-        <p>This is the left section with content or branding.</p>
-      </div>
-
-      <div className="right-section">
-        <div className="login-container">
-          <h1 className="login-header">Login</h1>
-          <form onSubmit={handleLogin} className="login-form">
-            <div className="input-group">
-              <label htmlFor="username">Username</label>
-              <input
-                type="text"
-                id="username"
-                placeholder="Enter your username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-            <div className="input-group">
-              <label htmlFor="password">Password</label>
-              <input
-                type="password"
-                id="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <LoadingButton
-              type="submit"
-              loading={loading}
-              variant="contained"
-              className="login-button"
-            >
-              Login
-            </LoadingButton>
-
-            {error && <p className="login-error">{typeof error === 'string' ? error : JSON.stringify(error)}</p>}
-
-            <p>Don't have an account?</p>
-            <button
-              type="button"
-              className="register-button"
-              onClick={handleRegisterRedirect}
-            >
-              Register
-            </button>
-          </form>
-        </div>
-      </div>
+    <div className="login-container">
+      <h1>Staff Login</h1>
+      {error && <p className="error">{error}</p>}
+      <form onSubmit={handleLogin}>
+        <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+        <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <LoadingButton type="submit" loading={loading} variant="contained">
+          Login
+        </LoadingButton>
+      </form>
     </div>
   );
 };
 
-export default LoginPage;
+export default LoginStaff;
