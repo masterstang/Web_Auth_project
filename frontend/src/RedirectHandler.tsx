@@ -33,6 +33,7 @@ const RedirectHandler: React.FC = () => {
 
     const storedMac = localStorage.getItem("macAddress");
     const storedSSID = localStorage.getItem("ssid");
+    console.log("📶 SSID from URL:", storedSSID);
 
     console.log("📌 Stored MAC Address:", storedMac);
     console.log("📌 Stored SSID:", storedSSID);

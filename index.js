@@ -124,6 +124,11 @@ const validateUserInput = [
 // API LOGIN
 app.post("/api/login-guest", async (req, res) => {
   const { username, password, ssid, mac } = req.body;
+  console.log("🔍 Received Login Request for Guest:");
+  console.log("Username:", username);
+  console.log("Password:", password ? "******" : "❌ Missing");
+  console.log("SSID:", ssid);
+  console.log("MAC Address:", mac);
 
   if (!username || !password || !ssid || !mac) {
     return res.status(400).json({ error: "Username, Password, SSID, and MAC Address are required." });
@@ -136,19 +141,25 @@ app.post("/api/login-guest", async (req, res) => {
     const query = `SELECT value FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'`;
     const results = await new Promise((resolve, reject) => {
       daloradiusDb.query(query, [username], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
+        if (err) {
+          console.error("❌ Database Query Error:", err);
+          return reject(err);
+        }
+        resolve(results);
       });
     });
 
     if (results.length === 0) {
+      console.log("❌ User not found in radcheck");
       return res.status(401).json({ error: "Invalid username or password." });
     }
 
     const hashedPassword = results[0].value;
-    const passwordMatch = await bcrypt.compare(password, hashedPassword);
+    console.log("🔍 Hashed Password from DB:", hashedPassword);
 
+    const passwordMatch = bcrypt.compareSync(password, hashedPassword); // ✅ ใช้ compareSync()
     if (!passwordMatch) {
+      console.log("❌ Password does not match");
       return res.status(401).json({ error: "Invalid username or password." });
     }
 
@@ -156,8 +167,11 @@ app.post("/api/login-guest", async (req, res) => {
     const roleQuery = `SELECT groupname FROM radusergroup WHERE username = ?`;
     const roleResults = await new Promise((resolve, reject) => {
       daloradiusDb.query(roleQuery, [username], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
+        if (err) {
+          console.error("❌ Role Query Error:", err);
+          return reject(err);
+        }
+        resolve(results);
       });
     });
 
@@ -182,16 +196,21 @@ app.post("/api/login-guest", async (req, res) => {
     params.append("password", password);
     params.append("grant_type", "password");
 
-    const keycloakResponse = await axios.post(
-      `${process.env.KEYCLOAK_URL}/realms/${process.env.KEYCLOAK_REALM}/protocol/openid-connect/token`,
-      params,
-      {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      }
-    );
-
-    const accessToken = keycloakResponse.data.access_token;
-    console.log("✅ Guest Access Token received:", accessToken);
+    let accessToken;
+    try {
+      const keycloakResponse = await axios.post(
+        `${process.env.KEYCLOAK_URL}/realms/${process.env.KEYCLOAK_REALM}/protocol/openid-connect/token`,
+        params,
+        {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        }
+      );
+      accessToken = keycloakResponse.data.access_token;
+      console.log("✅ Guest Access Token received.");
+    } catch (err) {
+      console.error("❌ Keycloak Authentication Failed:", err.response?.data || err.message);
+      return res.status(401).json({ error: "Keycloak Authentication Failed." });
+    }
 
     // 5️⃣ **บันทึกการเข้าใช้งานลง Daloradius**
     const userStatusQuery = `
@@ -204,8 +223,11 @@ app.post("/api/login-guest", async (req, res) => {
 
     const userStatusResults = await new Promise((resolve, reject) => {
       daloradiusDb.query(userStatusQuery, [username], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
+        if (err) {
+          console.error("❌ User Status Query Error:", err);
+          return reject(err);
+        }
+        resolve(results);
       });
     });
 
@@ -214,11 +236,15 @@ app.post("/api/login-guest", async (req, res) => {
     console.log("✅ Guest user status fetched successfully:", userStatus);
 
     // ✅ **อนุญาต MAC Address ให้ใช้งานอินเทอร์เน็ตผ่าน UniFi Controller**
-    await axios.post(`${process.env.UNIFI_API_URL}/api/unifi-authorize`, {
-      mac: mac,
-      username: username,
-      ssid: ssid,
-    });
+    try {
+      await axios.post(`${process.env.UNIFI_API_URL}/api/unifi-authorize`, {
+        mac: mac,
+        username: username,
+        ssid: ssid,
+      });
+    } catch (err) {
+      console.error("❌ UniFi Authorization Error:", err.response?.data || err.message);
+    }
 
     res.status(200).json({
       accessToken,
@@ -227,61 +253,81 @@ app.post("/api/login-guest", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Guest Login error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({ error: "Internal Server Error." });
+    console.error("❌ Guest Login error:", error);
+    res.status(500).json({ error: "Internal Server Error." });
   }
 });
+
 
 ///-----
 // API LOGIN สำหรับ Staff เท่านั้น
 app.post("/api/login-staff", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, ssid, mac } = req.body;
+  console.log("🔍 Received Login Request for Staff:");
+  console.log("Username:", username);
+  console.log("Password:", password ? "******" : "❌ Missing");
+  console.log("SSID:", ssid);
+  console.log("MAC Address:", mac);
 
-  if (!username || !password) {
-    return res.status(400).send("Username and Password are required.");
+  if (!username || !password || !ssid || !mac) {
+    return res.status(400).json({ error: "Username, Password, SSID, and MAC Address are required." });
   }
 
   try {
-    console.log("Fetching user password from Daloradius for Staff...");
+    console.log(`🔍 Verifying Staff Login: ${username}, SSID: ${ssid}, MAC: ${mac}`);
 
+    // 1️⃣ **ตรวจสอบรหัสผ่านจาก Daloradius**
     const query = `SELECT value FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'`;
-
     const results = await new Promise((resolve, reject) => {
       daloradiusDb.query(query, [username], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
+        if (err) {
+          console.error("❌ Database Query Error:", err);
+          return reject(err);
+        }
+        resolve(results);
       });
     });
 
     if (results.length === 0) {
-      return res.status(401).send("Invalid username or password.");
+      console.log("❌ User not found in radcheck");
+      return res.status(401).json({ error: "Invalid username or password." });
     }
 
     const hashedPassword = results[0].value;
+    console.log("🔍 Hashed Password from DB:", hashedPassword);
 
-    const passwordMatch = await bcrypt.compare(password, hashedPassword);
-
+    const passwordMatch = bcrypt.compareSync(password, hashedPassword); // ✅ ใช้ compareSync()
     if (!passwordMatch) {
-      return res.status(401).send("Invalid username or password.");
+      console.log("❌ Password does not match");
+      return res.status(401).json({ error: "Invalid username or password." });
     }
-     // 🔹 ตรวจสอบว่า User มี Role 'Staff' หรือไม่
-     const roleQuery = `SELECT groupname FROM radusergroup WHERE username = ?`;
-     const roleResults = await new Promise((resolve, reject) => {
-       daloradiusDb.query(roleQuery, [username], (err, results) => {
-         if (err) reject(err);
-         else resolve(results);
-       });
-     });
- 
-     if (roleResults.length === 0 || roleResults[0].groupname !== "Staff") {
-       console.error("❌ Access Denied: User does not have 'Staff' role.");
-       return res.status(403).json({ error: "Access Denied. Staff role required." });
-     }
- 
 
-    console.log("Password verified for Staff. Authenticating user in Keycloak...");
-    // 🔹 ส่ง request ไปยัง Keycloak เพื่อขอ Access Token
+    // 2️⃣ **ตรวจสอบว่า User มี Role 'Staff' หรือไม่**
+    const roleQuery = `SELECT groupname FROM radusergroup WHERE username = ?`;
+    const roleResults = await new Promise((resolve, reject) => {
+      daloradiusDb.query(roleQuery, [username], (err, results) => {
+        if (err) {
+          console.error("❌ Role Query Error:", err);
+          return reject(err);
+        }
+        resolve(results);
+      });
+    });
 
+    if (roleResults.length === 0 || roleResults[0].groupname !== "Staff") {
+      console.error("❌ Access Denied: User does not have 'Staff' role.");
+      return res.status(403).json({ error: "Access Denied. Staff role required." });
+    }
+
+    // 3️⃣ **ตรวจสอบว่า SSID ตรงกับ Role หรือไม่**
+    if (!ssid.startsWith("Test_Co_Ltd_Type_Staff")) {
+      console.error(`❌ Access Denied: SSID ${ssid} is not allowed for Staff.`);
+      return res.status(403).json({ error: "Unauthorized SSID access for Staff." });
+    }
+
+    console.log("✅ Password verified for Staff. Authenticating user in Keycloak...");
+
+    // 4️⃣ **เข้าสู่ระบบกับ Keycloak เพื่อรับ Token**
     const params = new URLSearchParams();
     params.append("client_id", process.env.KEYCLOAK_CLIENT_ID);
     params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET);
@@ -289,39 +335,55 @@ app.post("/api/login-staff", async (req, res) => {
     params.append("password", password);
     params.append("grant_type", "password");
 
-    const keycloakResponse = await axios.post(
-      `${process.env.KEYCLOAK_URL}/realms/${process.env.KEYCLOAK_REALM}/protocol/openid-connect/token`,
-      params,
-      {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      }
-    );
+    let accessToken;
+    try {
+      const keycloakResponse = await axios.post(
+        `${process.env.KEYCLOAK_URL}/realms/${process.env.KEYCLOAK_REALM}/protocol/openid-connect/token`,
+        params,
+        {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        }
+      );
+      accessToken = keycloakResponse.data.access_token;
+      console.log("✅ Staff Access Token received.");
+    } catch (err) {
+      console.error("❌ Keycloak Authentication Failed:", err.response?.data || err.message);
+      return res.status(401).json({ error: "Keycloak Authentication Failed." });
+    }
 
-    const accessToken = keycloakResponse.data.access_token;
-    console.log("Staff Access Token received:", accessToken);
-
-
+    // 5️⃣ **บันทึกการเข้าใช้งานลง Daloradius**
     const userStatusQuery = `
-      SELECT 
-        radacct.username,
-        radacct.AcctSessionTime AS session_time,
-        radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
-        radacct.AcctStartTime AS last_login
-      FROM radacct
-      WHERE radacct.username = ?
-      ORDER BY radacct.AcctStartTime DESC
-      LIMIT 1;
+      SELECT radacct.username, radacct.AcctSessionTime AS session_time,
+             radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
+             radacct.AcctStartTime AS last_login
+      FROM radacct WHERE radacct.username = ?
+      ORDER BY radacct.AcctStartTime DESC LIMIT 1;
     `;
 
     const userStatusResults = await new Promise((resolve, reject) => {
       daloradiusDb.query(userStatusQuery, [username], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
+        if (err) {
+          console.error("❌ User Status Query Error:", err);
+          return reject(err);
+        }
+        resolve(results);
       });
     });
 
     const userStatus = userStatusResults.length > 0 ? userStatusResults[0] : null;
-    console.log("Staff user status fetched successfully:", userStatus);
+
+    console.log("✅ Staff user status fetched successfully:", userStatus);
+
+    // ✅ **อนุญาต MAC Address ให้ใช้งานอินเทอร์เน็ตผ่าน UniFi Controller**
+    try {
+      await axios.post(`${process.env.UNIFI_API_URL}/api/unifi-authorize`, {
+        mac: mac,
+        username: username,
+        ssid: ssid,
+      });
+    } catch (err) {
+      console.error("❌ UniFi Authorization Error:", err.response?.data || err.message);
+    }
 
     res.status(200).json({
       accessToken,
@@ -330,13 +392,10 @@ app.post("/api/login-staff", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Staff Login error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).send(
-      error.response?.data?.error_description || "Internal Server Error."
-    );
+    console.error("❌ Staff Login error:", error);
+    res.status(500).json({ error: "Internal Server Error." });
   }
 });
-
 //--------------------
 app.get("/api/get-current-ssid", async (req, res) => {
   try {

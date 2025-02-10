@@ -27,16 +27,21 @@ const LoginPage: React.FC = () => {
   
     console.log("📡 MAC Address from URL or storage:", macFromUrl || localStorage.getItem("macAddress"));
   
-    // ✅ ตรวจสอบว่า MAC Address ถูกส่งไป API หรือไม่
+    // ✅ ดึงค่า SSID และบันทึกลง state และ localStorage
     fetch(`${apiBaseUrl}/api/get-current-ssid?mac=${macFromUrl}`)
       .then(response => response.json())
       .then(data => {
-        console.log("📶 Detected SSID:", data.ssid);
+        if (data.ssid) {
+          console.log("📶 Detected SSID:", data.ssid);
+          setCurrentSSID(data.ssid);  // ✅ อัปเดตค่า SSID ใน state
+          localStorage.setItem("ssid", data.ssid);  // ✅ บันทึกลง localStorage
+        }
       })
       .catch(error => {
         console.error("❌ Error fetching SSID:", error);
       });
   }, []);
+  
   
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,21 +50,23 @@ const LoginPage: React.FC = () => {
   
     try {
       const macAddress = localStorage.getItem("macAddress");
+      const ssid = currentSSID || localStorage.getItem("ssid");  // ✅ ใช้ค่าจาก localStorage ถ้า state ว่าง
+  
       if (!macAddress) {
         throw new Error("MAC Address is missing. Please reconnect to Wi-Fi.");
       }
   
-      console.log("🔍 Checking SSID before login:", currentSSID);
+      console.log("🔍 Checking SSID before login:", ssid);
   
-      if (!currentSSID) {
+      if (!ssid) {
         throw new Error("SSID is missing. Please reconnect to Wi-Fi.");
       }
   
-      // ✅ ตรวจสอบว่า SSID ปัจจุบันเป็นของ Guest หรือ Staff
+      // ✅ ตรวจสอบ SSID
       let loginEndpoint;
-      if (currentSSID.startsWith("Test_Co_Ltd_Type_Guest")) {
+      if (ssid.startsWith("Test_Co_Ltd_Type_Guest")) {
         loginEndpoint = "/api/login-guest";
-      } else if (currentSSID.startsWith("Test_Co_Ltd_Type_Staff")) {
+      } else if (ssid.startsWith("Test_Co_Ltd_Type_Staff")) {
         loginEndpoint = "/api/login-staff";
       } else {
         throw new Error("Unauthorized SSID. Please connect to the correct Wi-Fi network.");
@@ -68,7 +75,7 @@ const LoginPage: React.FC = () => {
       const response = await axios.post(`${apiBaseUrl}${loginEndpoint}`, {
         username: DOMPurify.sanitize(username),
         password,
-        ssid: currentSSID,
+        ssid,
         mac: macAddress,
       });
   
@@ -80,7 +87,7 @@ const LoginPage: React.FC = () => {
       await axios.post(`${apiBaseUrl}/api/unifi-authorize`, {
         mac: macAddress,
         username: username,
-        ssid: currentSSID,
+        ssid: ssid,
       });
   
       window.location.href = response.data.redirect;
