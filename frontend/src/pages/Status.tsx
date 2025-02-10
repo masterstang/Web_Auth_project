@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import "./status.css";
 import DOMPurify from 'dompurify';
 
@@ -20,9 +21,12 @@ interface UserStatus {
   bandwidth?: Bandwidth; // Optional field for bandwidth
 }
 
+
 const StatusPage: React.FC = () => {
   const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate(); // ✅ ใช้ navigate สำหรับ Redirect
+
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -48,6 +52,45 @@ const StatusPage: React.FC = () => {
     fetchStatus();
   }, []);
 
+  const handleLogout = async () => {
+    console.log("🔴 Logging out...");
+  
+    const token = localStorage.getItem("token");
+    const macAddress = localStorage.getItem("macAddress"); // ✅ ดึง MAC Address จาก localStorage
+    const ssid = localStorage.getItem("ssid");
+  
+    if (!macAddress) {
+      console.error("❌ No MAC Address found in localStorage");
+      return;
+    }
+  
+    let loginRedirect = "/guest/s/default/login"; // ค่าเริ่มต้น
+    if (ssid?.startsWith("Test_Co_Ltd_Type_Staff")) {
+      loginRedirect = "/staff/s/default/login";
+    }
+  
+    loginRedirect += `?id=${macAddress}`; // ✅ เพิ่ม MAC Address ลงไปใน URL
+  
+    if (token) {
+      try {
+        await axios.post(`${apiBaseUrl}/api/logout`, { token, mac: macAddress });
+        console.log("✅ Logged out and Internet Disconnected.");
+      } catch (error) {
+        console.error("❌ Logout API failed, proceeding with local logout.");
+      }
+    }
+  
+    // ✅ ลบข้อมูลผู้ใช้ใน localStorage
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    localStorage.removeItem("macAddress");
+    localStorage.removeItem("ssid");
+  
+    console.log(`🔀 Redirecting to: ${loginRedirect}`);
+    navigate(loginRedirect); // ✅ Redirect ไปหน้า Login พร้อม MAC Address
+  };
+  
+  
   return (
     <div className="main-container">
       <div className="status-container">
@@ -76,6 +119,7 @@ const StatusPage: React.FC = () => {
           ) : (
             <p>Loading...</p>
           )}
+          <button onClick={handleLogout} className="logout-button">Logout</button>
         </div>
       </div>
     </div>

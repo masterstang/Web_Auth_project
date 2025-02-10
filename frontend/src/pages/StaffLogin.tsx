@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import "./login.css";
 import LoadingButton from '@mui/lab/LoadingButton';
 import DOMPurify from 'dompurify';
 
-const LoginStaff: React.FC = () => {
+const LoginPage: React.FC = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [currentSSID, setCurrentSSID] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [currentSSID, setCurrentSSID] = useState(""); // ✅ เพิ่มตัวแปรเพื่อเก็บ SSID
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -20,35 +22,60 @@ const LoginStaff: React.FC = () => {
     const macFromUrl = queryParams.get("id");
   
     if (macFromUrl) {
-      localStorage.setItem("macAddress", macFromUrl); // ✅ บันทึกลง LocalStorage
+      localStorage.setItem("macAddress", macFromUrl);
     }
   
-    console.log("MAC Address from URL or storage:", macFromUrl || localStorage.getItem("macAddress"));
+    console.log("📡 MAC Address from URL or storage:", macFromUrl || localStorage.getItem("macAddress"));
+  
+    // ✅ ตรวจสอบว่า MAC Address ถูกส่งไป API หรือไม่
+    fetch(`${apiBaseUrl}/api/get-current-ssid?mac=${macFromUrl}`)
+      .then(response => response.json())
+      .then(data => {
+        console.log("📶 Detected SSID:", data.ssid);
+      })
+      .catch(error => {
+        console.error("❌ Error fetching SSID:", error);
+      });
   }, []);
   
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
   
     try {
-      let loginEndpoint = currentSSID === "Test_Co_Ltd_Type_Guest" ? "/api/login-guest" : "/api/login-staff";
-  
-      const response = await axios.post(`${apiBaseUrl}${loginEndpoint}`, {
-        username: DOMPurify.sanitize(username),
-        password,
-      });
-  
-      localStorage.setItem("token", response.data.accessToken);
-      localStorage.setItem("username", DOMPurify.sanitize(username));
-  
       const macAddress = localStorage.getItem("macAddress");
       if (!macAddress) {
         throw new Error("MAC Address is missing. Please reconnect to Wi-Fi.");
       }
   
-      console.log(`Authorizing ${username} (${macAddress}) on UniFi`);
+      console.log("🔍 Checking SSID before login:", currentSSID);
+  
+      if (!currentSSID) {
+        throw new Error("SSID is missing. Please reconnect to Wi-Fi.");
+      }
+  
+      // ✅ ตรวจสอบว่า SSID ปัจจุบันเป็นของ Guest หรือ Staff
+      let loginEndpoint;
+      if (currentSSID.startsWith("Test_Co_Ltd_Type_Guest")) {
+        loginEndpoint = "/api/login-guest";
+      } else if (currentSSID.startsWith("Test_Co_Ltd_Type_Staff")) {
+        loginEndpoint = "/api/login-staff";
+      } else {
+        throw new Error("Unauthorized SSID. Please connect to the correct Wi-Fi network.");
+      }
+  
+      const response = await axios.post(`${apiBaseUrl}${loginEndpoint}`, {
+        username: DOMPurify.sanitize(username),
+        password,
+        ssid: currentSSID,
+        mac: macAddress,
+      });
+  
+      localStorage.setItem("token", response.data.accessToken);
+      localStorage.setItem("username", DOMPurify.sanitize(username));
+  
+      console.log(`✅ Authorizing ${username} (${macAddress}) on UniFi`);
   
       await axios.post(`${apiBaseUrl}/api/unifi-authorize`, {
         mac: macAddress,
@@ -58,7 +85,7 @@ const LoginStaff: React.FC = () => {
   
       window.location.href = response.data.redirect;
     } catch (err: any) {
-      console.error("Error during login:", err);
+      console.error("❌ Error during login:", err);
       setError(err.response?.data || "Login failed. Please try again.");
     } finally {
       setLoading(false);
@@ -66,18 +93,53 @@ const LoginStaff: React.FC = () => {
   };
   
   return (
-    <div className="login-container">
-      <h1>Staff Login</h1>
-      {error && <p className="error">{error}</p>}
-      <form onSubmit={handleLogin}>
-        <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-        <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        <LoadingButton type="submit" loading={loading} variant="contained">
-          Login
-        </LoadingButton>
-      </form>
+    <div className="split-container">
+      <div className="left-section">
+        <h1>Welcome</h1>
+        <p>This is the left section with content or branding.</p>
+      </div>
+
+      <div className="right-section">
+        <div className="login-container">
+          <h1 className="login-header">Login</h1>
+          <form onSubmit={handleLogin} className="login-form">
+            <div className="input-group">
+              <label htmlFor="username">Username</label>
+              <input
+                type="text"
+                id="username"
+                placeholder="Enter your username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </div>
+            <div className="input-group">
+              <label htmlFor="password">Password</label>
+              <input
+                type="password"
+                id="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <LoadingButton
+              type="submit"
+              loading={loading}
+              variant="contained"
+              className="login-button"
+            >
+              Login
+            </LoadingButton>
+
+            {error && <p className="login-error">{typeof error === "string" ? error : JSON.stringify(error)}</p>}
+            </form>
+        </div>
+      </div>
     </div>
   );
 };
 
-export default LoginStaff;
+export default LoginPage;

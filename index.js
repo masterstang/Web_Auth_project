@@ -119,19 +119,21 @@ const validateUserInput = [
 ];
 
 //-------------------------------
+
+//-------------------------------
 // API LOGIN
 app.post("/api/login-guest", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, ssid, mac } = req.body;
 
-  if (!username || !password) {
-    return res.status(400).send("Username and Password are required.");
+  if (!username || !password || !ssid || !mac) {
+    return res.status(400).json({ error: "Username, Password, SSID, and MAC Address are required." });
   }
 
   try {
-    console.log("Fetching user password from Daloradius for Guest...");
+    console.log(`🔍 Verifying Guest Login: ${username}, SSID: ${ssid}, MAC: ${mac}`);
 
+    // 1️⃣ **ตรวจสอบรหัสผ่านจาก Daloradius**
     const query = `SELECT value FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'`;
-
     const results = await new Promise((resolve, reject) => {
       daloradiusDb.query(query, [username], (err, results) => {
         if (err) reject(err);
@@ -140,19 +142,39 @@ app.post("/api/login-guest", async (req, res) => {
     });
 
     if (results.length === 0) {
-      return res.status(401).send("Invalid username or password.");
+      return res.status(401).json({ error: "Invalid username or password." });
     }
 
     const hashedPassword = results[0].value;
-
     const passwordMatch = await bcrypt.compare(password, hashedPassword);
 
     if (!passwordMatch) {
-      return res.status(401).send("Invalid username or password.");
+      return res.status(401).json({ error: "Invalid username or password." });
     }
 
-    console.log("Password verified for Guest. Authenticating user in Keycloak...");
+    // 2️⃣ **ตรวจสอบว่า User มี Role 'GuestUser' หรือไม่**
+    const roleQuery = `SELECT groupname FROM radusergroup WHERE username = ?`;
+    const roleResults = await new Promise((resolve, reject) => {
+      daloradiusDb.query(roleQuery, [username], (err, results) => {
+        if (err) reject(err);
+        else resolve(results);
+      });
+    });
 
+    if (roleResults.length === 0 || roleResults[0].groupname !== "GuestUser") {
+      console.error("❌ Access Denied: User does not have 'GuestUser' role.");
+      return res.status(403).json({ error: "Access Denied. GuestUser role required." });
+    }
+
+    // 3️⃣ **ตรวจสอบว่า SSID ตรงกับ Role หรือไม่**
+    if (!ssid.startsWith("Test_Co_Ltd_Type_Guest")) {
+      console.error(`❌ Access Denied: SSID ${ssid} is not allowed for GuestUser.`);
+      return res.status(403).json({ error: "Unauthorized SSID access for GuestUser." });
+    }
+
+    console.log("✅ Password verified for Guest. Authenticating user in Keycloak...");
+
+    // 4️⃣ **เข้าสู่ระบบกับ Keycloak เพื่อรับ Token**
     const params = new URLSearchParams();
     params.append("client_id", process.env.KEYCLOAK_CLIENT_ID);
     params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET);
@@ -169,27 +191,15 @@ app.post("/api/login-guest", async (req, res) => {
     );
 
     const accessToken = keycloakResponse.data.access_token;
-    console.log("Guest Access Token received:", accessToken);
+    console.log("✅ Guest Access Token received:", accessToken);
 
-    await new Promise((resolve, reject) => {
-      daloradiusDb.query(`CALL update_radius_cache(?)`, [username], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    console.log("Guest RADIUS data synchronized successfully.");
-
+    // 5️⃣ **บันทึกการเข้าใช้งานลง Daloradius**
     const userStatusQuery = `
-      SELECT 
-        radacct.username,
-        radacct.AcctSessionTime AS session_time,
-        radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
-        radacct.AcctStartTime AS last_login
-      FROM radacct
-      WHERE radacct.username = ?
-      ORDER BY radacct.AcctStartTime DESC
-      LIMIT 1;
+      SELECT radacct.username, radacct.AcctSessionTime AS session_time,
+             radacct.AcctInputOctets + radacct.AcctOutputOctets AS data_usage,
+             radacct.AcctStartTime AS last_login
+      FROM radacct WHERE radacct.username = ?
+      ORDER BY radacct.AcctStartTime DESC LIMIT 1;
     `;
 
     const userStatusResults = await new Promise((resolve, reject) => {
@@ -200,7 +210,15 @@ app.post("/api/login-guest", async (req, res) => {
     });
 
     const userStatus = userStatusResults.length > 0 ? userStatusResults[0] : null;
-    console.log("Guest user status fetched successfully:", userStatus);
+
+    console.log("✅ Guest user status fetched successfully:", userStatus);
+
+    // ✅ **อนุญาต MAC Address ให้ใช้งานอินเทอร์เน็ตผ่าน UniFi Controller**
+    await axios.post(`${process.env.UNIFI_API_URL}/api/unifi-authorize`, {
+      mac: mac,
+      username: username,
+      ssid: ssid,
+    });
 
     res.status(200).json({
       accessToken,
@@ -209,13 +227,13 @@ app.post("/api/login-guest", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Guest Login error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).send(
-      error.response?.data?.error_description || "Internal Server Error."
-    );
+    console.error("❌ Guest Login error:", error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ error: "Internal Server Error." });
   }
 });
 
+///-----
+// API LOGIN สำหรับ Staff เท่านั้น
 app.post("/api/login-staff", async (req, res) => {
   const { username, password } = req.body;
 
@@ -246,8 +264,23 @@ app.post("/api/login-staff", async (req, res) => {
     if (!passwordMatch) {
       return res.status(401).send("Invalid username or password.");
     }
+     // 🔹 ตรวจสอบว่า User มี Role 'Staff' หรือไม่
+     const roleQuery = `SELECT groupname FROM radusergroup WHERE username = ?`;
+     const roleResults = await new Promise((resolve, reject) => {
+       daloradiusDb.query(roleQuery, [username], (err, results) => {
+         if (err) reject(err);
+         else resolve(results);
+       });
+     });
+ 
+     if (roleResults.length === 0 || roleResults[0].groupname !== "Staff") {
+       console.error("❌ Access Denied: User does not have 'Staff' role.");
+       return res.status(403).json({ error: "Access Denied. Staff role required." });
+     }
+ 
 
     console.log("Password verified for Staff. Authenticating user in Keycloak...");
+    // 🔹 ส่ง request ไปยัง Keycloak เพื่อขอ Access Token
 
     const params = new URLSearchParams();
     params.append("client_id", process.env.KEYCLOAK_CLIENT_ID);
@@ -267,14 +300,6 @@ app.post("/api/login-staff", async (req, res) => {
     const accessToken = keycloakResponse.data.access_token;
     console.log("Staff Access Token received:", accessToken);
 
-    await new Promise((resolve, reject) => {
-      daloradiusDb.query(`CALL update_radius_cache(?)`, [username], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    console.log("Staff RADIUS data synchronized successfully.");
 
     const userStatusQuery = `
       SELECT 
@@ -312,8 +337,117 @@ app.post("/api/login-staff", async (req, res) => {
   }
 });
 
-///----------------------------------------------
+//--------------------
+app.get("/api/get-current-ssid", async (req, res) => {
+  try {
+    const macFromQuery = req.query.mac; // รับ MAC จาก Query
 
+    if (!macFromQuery) {
+      console.error("❌ No MAC Address provided.");
+      return res.status(400).json({ error: "MAC Address is required." });
+    }
+
+    console.log(`🔍 Fetching SSID for MAC: ${macFromQuery}`);
+
+    // ✅ เรียกข้อมูลจาก UniFi Controller
+    const unifiResponse = await axios.get(
+      "https://192.168.1.1/proxy/network/api/s/default/stat/sta",
+      {
+        headers: {
+          "X-API-KEY": process.env.UNIFI_API_KEY,
+          "Accept": "application/json",
+        },
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      }
+    );
+
+    const clients = unifiResponse.data.data;
+    const client = clients.find((c) => c.mac.toLowerCase() === macFromQuery.toLowerCase());
+
+    if (!client) {
+      console.error(`❌ MAC Address ${macFromQuery} not found in UniFi Controller.`);
+      return res.status(404).json({ error: "MAC Address not found." });
+    }
+
+    console.log("✅ Current SSID detected:", client.essid);
+    res.json({ ssid: client.essid });
+
+  } catch (error) {
+    console.error("❌ Failed to fetch SSID:", error.message);
+    res.status(500).json({ error: "Failed to get SSID" });
+  }
+});
+
+//---------------------------------------------------------------------
+app.post("/api/logout", async (req, res) => {
+  const { token, mac } = req.body;
+
+  if (!token || !mac) {
+    console.error("❌ Missing token or MAC address in logout request");
+    return res.status(400).json({ error: "Token and MAC Address are required" });
+  }
+
+  try {
+    console.log("🔴 Logging out from Keycloak...");
+    await axios.post(
+      `${keycloakBaseUrl}/realms/${keycloakRealm}/protocol/openid-connect/logout`,
+      new URLSearchParams({
+        client_id: keycloakClientId,
+        client_secret: keycloakSecret,
+        token: token,
+      }).toString(),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      }
+    );
+    console.log("✅ Logged out from Keycloak.");
+
+    console.log(`🔍 Checking UniFi API for MAC: ${mac}`);
+    const unifiResponse = await axios.get(
+      "https://192.168.1.1/proxy/network/api/s/default/stat/sta",
+      {
+        headers: {
+          "X-API-KEY": process.env.UNIFI_API_KEY,
+          "Accept": "application/json",
+        },
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      }
+    );
+
+    const clients = unifiResponse.data.data;
+    const client = clients.find((c) => c.mac.toLowerCase() === mac.toLowerCase());
+
+    if (!client) {
+      console.error(`❌ MAC Address ${mac} not found in UniFi Controller.`);
+      return res.status(403).json({ error: "MAC Address not connected to any SSID" });
+    }
+
+    console.log(`✅ MAC Address ${mac} is currently connected. Attempting to disconnect...`);
+    await axios.post(
+      "https://192.168.1.1/proxy/network/api/s/default/cmd/stamgr",
+      {
+        cmd: "unauthorize-guest",
+        mac: mac,
+      },
+      {
+        headers: {
+          "X-API-KEY": process.env.UNIFI_API_KEY,
+          "Accept": "application/json",
+        },
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      }
+    );
+
+    console.log(`✅ Internet disconnected for MAC: ${mac}`);
+    res.status(200).json({ message: "Logged out and internet disconnected" });
+
+  } catch (error) {
+    console.error("❌ Logout error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Failed to logout and disconnect internet" });
+  }
+});
+
+//----------------------------------------------------------------------
 app.post("/api/register", validateUserInput, async (req, res) => {
   console.log("Request Body:", req.body);
 
@@ -635,7 +769,7 @@ app.post("/api/unifi-authorize", async (req, res) => {
             {
               cmd: "authorize-guest",
               mac: macAddress,
-              minutes: 1, // ✅ อนุญาตให้ใช้งานอินเทอร์เน็ต 60 นาที
+              minutes: 5, // ✅ อนุญาตให้ใช้งานอินเทอร์เน็ต 1 นาที
             },
             {
               headers: {
@@ -670,19 +804,32 @@ app.get('/guest/s/default/', (req, res) => {
 
 app.get("/", async (req, res) => {
   try {
-    const ssidResponse = await axios.get("http://192.168.1.67/api/get-current-ssid");
+    const macAddress = req.query.mac; // รับค่า MAC จาก URL
+
+    if (!macAddress) {
+      console.error("❌ No MAC Address in request.");
+      return res.redirect("/guest/s/default/login?id=unknown"); // ✅ ส่งค่า "unknown" ไปก่อน
+    }
+
+    console.log(`🔍 Checking SSID for MAC: ${macAddress}`);
+    const ssidResponse = await axios.get(`http://192.168.1.67/api/get-current-ssid?mac=${macAddress}`);
     const ssid = ssidResponse.data.ssid;
 
+    if (!ssid || ssid === "undefined") {
+      console.error("❌ SSID is undefined or not detected.");
+      return res.redirect(`/guest/s/default/login?id=${macAddress}&ssid=unknown`);
+    }
+
     if (ssid === "Test_Co_Ltd_Type_Guest") {
-      res.redirect("/guest/s/default/login");  // ✅ Guest Login
+      res.redirect(`/guest/s/default/login?id=${macAddress}&ssid=${ssid}`);  // ✅ Guest Login
     } else if (ssid === "Test_Co_Ltd_Type_Staff") {
-      res.redirect("/staff/s/default/login");  // ✅ Staff Login
+      res.redirect(`/staff/s/default/login?id=${macAddress}&ssid=${ssid}`);  // ✅ Staff Login
     } else {
-      res.redirect("/guest/s/default/login");  // ✅ Default ไป Guest
+      res.redirect(`/guest/s/default/login?id=${macAddress}&ssid=${ssid}`);  // ✅ Default ไป Guest
     }
   } catch (error) {
-    console.error("Error fetching SSID:", error.message);
-    res.redirect("/guest/s/default/login");  // ✅ ถ้าเช็ค SSID ไม่ได้ ให้ Default ไป Guest Login
+    console.error("❌ Error fetching SSID:", error.message);
+    res.redirect("/guest/s/default/login?id=unknown");  // ✅ ถ้าเช็ค SSID ไม่ได้ ให้ Default ไป Guest Login
   }
 });
 
